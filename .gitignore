@@ -1,0 +1,33 @@
+# Build outputs
+build/
+build_dist_temp/
+build_temp/
+dist/
+dist_배포/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# App data (personal, not committed)
+data/
+app/
+
+# Secrets & tokens
+*token*.json
+*credentials*.json
+*.env
+
+# Preview/temp images
+preview_*.png
+icon_showcase.png
+
+# Windows
+Thumbs.db
+Desktop.ini
+nul
