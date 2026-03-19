@@ -1,0 +1,99 @@
+name: Windows EXE 빌드 & 릴리스
+
+on:
+  push:
+    branches: [ master ]
+    tags:
+      - 'v*'
+  workflow_dispatch:   # 수동 실행 허용
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+
+    steps:
+      # ① 소스 체크아웃
+      - name: 소스코드 체크아웃
+        uses: actions/checkout@v4
+
+      # ② Python 설치
+      - name: Python 3.11 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # ③ 의존성 설치
+      - name: 패키지 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # ④ ffmpeg 설치 (CLOVA STT 청크 처리 필수)
+      - name: ffmpeg 설치
+        run: |
+          choco install ffmpeg -y
+          ffmpeg -version
+
+      # ⑤ PyInstaller로 EXE 빌드
+      - name: EXE 빌드 (PyInstaller)
+        run: |
+          pyinstaller --onefile --windowed `
+            --name "회의녹음요약" `
+            --icon app_icon.ico `
+            --add-data "app_dist/config.py;." `
+            --add-data "app_dist/database.py;." `
+            --add-data "app_dist/recorder.py;." `
+            --add-data "app_dist/gemini_service.py;." `
+            --add-data "app_dist/clova_service.py;." `
+            --add-data "app_dist/file_manager.py;." `
+            --add-data "app_dist/google_drive.py;." `
+            --hidden-import "requests" `
+            --hidden-import "anthropic" `
+            --hidden-import "google.auth" `
+            --hidden-import "google.auth.transport.requests" `
+            --hidden-import "google_auth_oauthlib.flow" `
+            --hidden-import "googleapiclient.discovery" `
+            --hidden-import "googleapiclient.http" `
+            --hidden-import "googleapiclient.errors" `
+            app_dist/main.py
+
+      # ⑥ 빌드 결과 확인
+      - name: 빌드 결과 확인
+        run: |
+          dir dist
+          echo "EXE 크기:"
+          (Get-Item "dist\회의녹음요약.exe").length / 1MB
+
+      # ⑦ Artifact 업로드 (모든 push)
+      - name: EXE Artifact 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: 회의녹음요약-windows-exe
+          path: dist/회의녹음요약.exe
+          retention-days: 30
+
+      # ⑧ 태그 push 시 GitHub Release 자동 생성
+      - name: GitHub Release 생성 (태그 push 시)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "회의녹음요약 ${{ github.ref_name }}"
+          body: |
+            ## 회의녹음요약 ${{ github.ref_name }}
+
+            ### 설치 방법
+            1. 아래 `회의녹음요약.exe` 다운로드
+            2. 더블클릭 실행 (설치 불필요)
+            3. 설정 탭에서 API 키 입력 후 사용
+
+            ### 필요 API 키
+            - **CLOVA Speech** (STT 권장): [NAVER Cloud Console](https://console.ncloud.com)
+            - **Gemini** (요약 필수): [Google AI Studio](https://aistudio.google.com/apikey)
+
+            ### 전체 사용법
+            [MANUAL.md](https://github.com/${{ github.repository }}/blob/master/MANUAL.md) 참고
+          files: dist/회의녹음요약.exe
+          draft: false
+          prerelease: false
