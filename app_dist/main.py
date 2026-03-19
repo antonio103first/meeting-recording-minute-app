@@ -436,24 +436,22 @@ class App(tk.Tk):
                  text="Gemini STT 타임아웃 문제 해소 — 한국어 특화 STT (CER ~9.5%)",
                  font=FONT_SMALL, bg=CARD_BG, fg=SUCCESS).pack(anchor="w", pady=(0, 6))
 
-        # Client ID
-        tk.Label(clova_card, text="Client ID:", font=FONT_BODY,
+        # Invoke URL
+        tk.Label(clova_card, text="Invoke URL:", font=FONT_BODY,
                  bg=CARD_BG, fg=TEXT).pack(anchor="w")
-        self._clova_id_var = tk.StringVar(value=self._cfg.get("clova_client_id", ""))
+        self._clova_id_var = tk.StringVar(value=self._cfg.get("clova_invoke_url", ""))
         clova_id_row = tk.Frame(clova_card, bg=CARD_BG)
         clova_id_row.pack(fill="x", pady=(2, 4))
         self._clova_id_entry = tk.Entry(
             clova_id_row, textvariable=self._clova_id_var,
-            width=52, font=FONT_BODY, show="*")
+            width=52, font=FONT_BODY)
         self._clova_id_entry.pack(side="left")
-        self._clova_id_show = False
-        self._btn(clova_id_row, "👁", TEXT_LIGHT,
-                  self._toggle_clova_id_vis, w=3).pack(side="left", padx=4)
+        self._clova_id_show = True   # URL은 항상 표시
 
-        # Client Secret
-        tk.Label(clova_card, text="Client Secret:", font=FONT_BODY,
+        # Secret Key
+        tk.Label(clova_card, text="Secret Key:", font=FONT_BODY,
                  bg=CARD_BG, fg=TEXT).pack(anchor="w")
-        self._clova_secret_var = tk.StringVar(value=self._cfg.get("clova_client_secret", ""))
+        self._clova_secret_var = tk.StringVar(value=self._cfg.get("clova_secret_key", ""))
         clova_sec_row = tk.Frame(clova_card, bg=CARD_BG)
         clova_sec_row.pack(fill="x", pady=(2, 6))
         self._clova_secret_entry = tk.Entry(
@@ -1139,10 +1137,10 @@ class App(tk.Tk):
         # STT 엔진 선택 여부에 따라 키 유효성 검사
         stt_eng = self._pipeline_stt_engine
         if stt_eng == "clova":
-            if not (self._cfg.get("clova_client_id", "").strip() and
-                    self._cfg.get("clova_client_secret", "").strip()):
+            if not (self._cfg.get("clova_invoke_url", "").strip() and
+                    self._cfg.get("clova_secret_key", "").strip()):
                 messagebox.showwarning("알림",
-                    "설정 탭에서 CLOVA Speech API 키(Client ID / Secret)를 먼저 입력해주세요.")
+                    "설정 탭에서 CLOVA Speech API 키(Invoke URL / Secret Key)를 먼저 입력해주세요.")
                 self._nb.select(2)
                 return
         else:
@@ -1194,8 +1192,8 @@ class App(tk.Tk):
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
 
         # ─ STT 엔진 ──────────────────────────────────────
-        has_clova = (bool(self._cfg.get("clova_client_id", "").strip()) and
-                     bool(self._cfg.get("clova_client_secret", "").strip()))
+        has_clova = (bool(self._cfg.get("clova_invoke_url", "").strip()) and
+                     bool(self._cfg.get("clova_secret_key", "").strip()))
         frm_stt = tk.LabelFrame(dlg, text="  STT 변환 엔진  ", font=FONT_BODY,
                                 bg=CARD_BG, fg=TEXT, padx=12, pady=6)
         frm_stt.pack(fill="x", padx=20, pady=4)
@@ -1275,8 +1273,8 @@ class App(tk.Tk):
             if self._pipeline_stt_engine == "clova":
                 ok, text = clova.transcribe(
                     self._current_mp3,
-                    client_id=self._cfg.get("clova_client_id", ""),
-                    client_secret=self._cfg.get("clova_client_secret", ""),
+                    invoke_url=self._cfg.get("clova_invoke_url", ""),
+                    secret_key=self._cfg.get("clova_secret_key", ""),
                     progress_cb=lambda v: self.after(0, lambda: self._set_prog(self._stt_prog, v)),
                     num_speakers=num_spk,
                     cancel_event=self._cancel_event,
@@ -2096,8 +2094,8 @@ class App(tk.Tk):
         self._clova_secret_entry.config(show="" if self._clova_secret_show else "*")
 
     def _save_clova_keys(self):
-        self._cfg["clova_client_id"]     = self._clova_id_var.get().strip()
-        self._cfg["clova_client_secret"] = self._clova_secret_var.get().strip()
+        self._cfg["clova_invoke_url"] = self._clova_id_var.get().strip()
+        self._cfg["clova_secret_key"] = self._clova_secret_var.get().strip()
         config.save_config(self._cfg)
         self._clova_status_var.set("✅ CLOVA API 키 저장 완료")
         # 파이프라인 STT 엔진도 동기화
@@ -2110,14 +2108,14 @@ class App(tk.Tk):
         config.save_config(self._cfg)
 
     def _test_clova(self):
-        cid    = self._clova_id_var.get().strip()
-        csecret = self._clova_secret_var.get().strip()
-        if not cid or not csecret:
-            messagebox.showwarning("알림", "Client ID와 Client Secret을 모두 입력해주세요.")
+        invoke_url = self._clova_id_var.get().strip()
+        secret_key = self._clova_secret_var.get().strip()
+        if not invoke_url or not secret_key:
+            messagebox.showwarning("알림", "Invoke URL과 Secret Key를 모두 입력해주세요.")
             return
         self._clova_status_var.set("연결 테스트 중...")
         self.update()
-        ok, msg = clova.test_connection(cid, csecret)
+        ok, msg = clova.test_connection(invoke_url, secret_key)
         self._clova_status_var.set(("✅ " if ok else "❌ ") + msg)
 
     # ── Gemini 설정 메서드 ───────────────────────────────

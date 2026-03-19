@@ -35,8 +35,8 @@ GEMINI_INLINE_LIMIT_MB = 10   # 이 크기 미만 → base64 인라인 (10MB 초
 
 CLAUDE_MODEL           = "claude-sonnet-4-6"  # Claude 요약 엔진
 
-# ── CLOVA Speech Recognition ────────────────────────────
-CLOVA_STT_CHUNK_SEC    = 50   # 청크당 최대 초 (CSR 권장치)
+# ── CLOVA Speech Long API ───────────────────────────────
+# Invoke URL + Secret Key 방식 (긴문장 인식)
 
 # ── 지원 오디오 형식 ────────────────────────────────────
 SUPPORTED_AUDIO = [".mp3", ".wav", ".m4a", ".mp4", ".ogg", ".flac"]
@@ -103,9 +103,9 @@ def load_config() -> dict:
     return {
         "gemini_api_key": "",
         "claude_api_key": "",
-        "clova_client_id": "",
-        "clova_client_secret": "",
-        "stt_engine": "gemini",   # "gemini" | "clova"
+        "clova_invoke_url": "",
+        "clova_secret_key": "",
+        "stt_engine": "clova",    # "gemini" | "clova"
         "recording_dir": str(Path.home() / "Documents" / "Meeting recording"),
         "audio_subdir": "녹음파일",
         "summary_subdir": "회의록(요약)",
@@ -129,8 +129,8 @@ def save_config(data: dict):
 def is_config_complete(data: dict) -> tuple:
     missing = []
     has_gemini = bool(data.get("gemini_api_key", "").strip())
-    has_clova  = bool(data.get("clova_client_id", "").strip()) and \
-                 bool(data.get("clova_client_secret", "").strip())
+    has_clova  = bool(data.get("clova_invoke_url", "").strip()) and \
+                 bool(data.get("clova_secret_key", "").strip())
     if not has_gemini and not has_clova:
         missing.append("Gemini API 키 또는 CLOVA Speech API 키")
     return len(missing) == 0, missing
