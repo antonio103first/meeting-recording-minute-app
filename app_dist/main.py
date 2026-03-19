@@ -22,6 +22,7 @@ import database
 import recorder as rec_mod
 import gemini_service as gemini
 import claude_service as claude
+import clova_service as clova
 import file_manager as fm
 import google_drive as gdrive
 
@@ -73,6 +74,7 @@ class App(tk.Tk):
         # 파이프라인 임시 저장
         self._pipeline_sum_mode    = "speaker"
         self._pipeline_ai_engine   = "gemini"   # "gemini" | "claude"
+        self._pipeline_stt_engine  = self._cfg.get("stt_engine", "gemini")  # "gemini" | "clova"
         self._pipeline_rename_spk  = False
         self._current_sum_path     = None
         self._metrics_text         = ""
@@ -426,6 +428,78 @@ class App(tk.Tk):
                  text="▶ aistudio.google.com 에서 무료 API 키를 발급받으세요.",
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(4, 0))
 
+        # ─ CLOVA Speech API ─────────────────────────────
+        self._card(inner, "🎤 CLOVA Speech API 설정 (NAVER Cloud)").pack(fill="x", **pad)
+        clova_card = self._last_card
+
+        tk.Label(clova_card,
+                 text="Gemini STT 타임아웃 문제 해소 — 한국어 특화 STT (CER ~9.5%)",
+                 font=FONT_SMALL, bg=CARD_BG, fg=SUCCESS).pack(anchor="w", pady=(0, 6))
+
+        # Client ID
+        tk.Label(clova_card, text="Client ID:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT).pack(anchor="w")
+        self._clova_id_var = tk.StringVar(value=self._cfg.get("clova_client_id", ""))
+        clova_id_row = tk.Frame(clova_card, bg=CARD_BG)
+        clova_id_row.pack(fill="x", pady=(2, 4))
+        self._clova_id_entry = tk.Entry(
+            clova_id_row, textvariable=self._clova_id_var,
+            width=52, font=FONT_BODY, show="*")
+        self._clova_id_entry.pack(side="left")
+        self._clova_id_show = False
+        self._btn(clova_id_row, "👁", TEXT_LIGHT,
+                  self._toggle_clova_id_vis, w=3).pack(side="left", padx=4)
+
+        # Client Secret
+        tk.Label(clova_card, text="Client Secret:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT).pack(anchor="w")
+        self._clova_secret_var = tk.StringVar(value=self._cfg.get("clova_client_secret", ""))
+        clova_sec_row = tk.Frame(clova_card, bg=CARD_BG)
+        clova_sec_row.pack(fill="x", pady=(2, 6))
+        self._clova_secret_entry = tk.Entry(
+            clova_sec_row, textvariable=self._clova_secret_var,
+            width=52, font=FONT_BODY, show="*")
+        self._clova_secret_entry.pack(side="left")
+        self._clova_secret_show = False
+        self._btn(clova_sec_row, "👁", TEXT_LIGHT,
+                  self._toggle_clova_secret_vis, w=3).pack(side="left", padx=4)
+
+        # STT 기본 엔진 선택
+        stt_eng_row = tk.Frame(clova_card, bg=CARD_BG)
+        stt_eng_row.pack(fill="x", pady=(0, 4))
+        tk.Label(stt_eng_row, text="기본 STT 엔진:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT).pack(side="left")
+        self._stt_engine_var = tk.StringVar(value=self._cfg.get("stt_engine", "gemini"))
+        tk.Radiobutton(stt_eng_row, text="Gemini",
+                       variable=self._stt_engine_var, value="gemini",
+                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
+                       command=self._save_stt_engine).pack(side="left", padx=(10, 4))
+        tk.Radiobutton(stt_eng_row, text="CLOVA Speech (권장)",
+                       variable=self._stt_engine_var, value="clova",
+                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
+                       command=self._save_stt_engine).pack(side="left", padx=4)
+
+        clova_btn_row = tk.Frame(clova_card, bg=CARD_BG)
+        clova_btn_row.pack(pady=4)
+        self._btn(clova_btn_row, "저장", ACCENT,
+                  self._save_clova_keys, w=8).pack(side="left", padx=4)
+        self._btn(clova_btn_row, "연결 테스트", SUCCESS,
+                  self._test_clova, w=12).pack(side="left", padx=4)
+        self._btn(clova_btn_row, "🌐 NCP 콘솔", TEXT_LIGHT,
+                  lambda: __import__("webbrowser").open(
+                      "https://console.ncloud.com/ai-service/clovaSpeech"),
+                  w=12).pack(side="left", padx=4)
+
+        self._clova_status_var = tk.StringVar(value="")
+        tk.Label(clova_card, textvariable=self._clova_status_var,
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack()
+        tk.Label(clova_card,
+                 text="▶ console.ncloud.com → AI Service → CLOVA Speech에서 API 키를 발급받으세요.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(4, 0))
+        tk.Label(clova_card,
+                 text="  장시간 회의 녹음도 청크 분할로 안정적 처리 (타임아웃 없음)",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
+
         # ─ Claude API ───────────────────────────────────
         self._card(inner, "🤖 Claude API 설정 (Anthropic)").pack(fill="x", **pad)
         cl_card = self._last_card
@@ -544,6 +618,63 @@ class App(tk.Tk):
                   lambda: webbrowser.open(
                       "https://console.cloud.google.com/apis/credentials"),
                   w=14).pack(side="left", padx=4)
+
+        ttk.Separator(drv_card).pack(fill="x", pady=(8, 6))
+        tk.Label(drv_card, text="📁 업로드 폴더 설정",
+                 font=FONT_H2, bg=CARD_BG, fg=TEXT).pack(anchor="w", pady=(0, 4))
+
+        # MP3 폴더 행
+        mp3_row = tk.Frame(drv_card, bg=CARD_BG)
+        mp3_row.pack(fill="x", pady=(0, 4))
+        tk.Label(mp3_row, text="녹음(MP3) 폴더명:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=18, anchor="w").pack(side="left")
+        self._drv_mp3_name_var = tk.StringVar(
+            value=self._cfg.get("drive_mp3_folder_name", "녹음파일"))
+        tk.Entry(mp3_row, textvariable=self._drv_mp3_name_var,
+                 width=18, font=FONT_BODY).pack(side="left", padx=(0, 6))
+        self._drv_mp3_id_var = tk.StringVar(
+            value=self._cfg.get("drive_mp3_folder_id", ""))
+        tk.Label(mp3_row, text="ID:", font=FONT_SMALL,
+                 bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left")
+        tk.Entry(mp3_row, textvariable=self._drv_mp3_id_var,
+                 width=20, font=FONT_SMALL, fg=TEXT_LIGHT).pack(side="left", padx=(2, 6))
+        self._btn(mp3_row, "📁 생성/찾기", ACCENT,
+                  self._ensure_mp3_folder, w=10).pack(side="left")
+
+        # TXT 폴더 행
+        txt_row = tk.Frame(drv_card, bg=CARD_BG)
+        txt_row.pack(fill="x", pady=(0, 4))
+        tk.Label(txt_row, text="요약(TXT) 폴더명:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=18, anchor="w").pack(side="left")
+        self._drv_txt_name_var = tk.StringVar(
+            value=self._cfg.get("drive_txt_folder_name", "회의록(요약)"))
+        tk.Entry(txt_row, textvariable=self._drv_txt_name_var,
+                 width=18, font=FONT_BODY).pack(side="left", padx=(0, 6))
+        self._drv_txt_id_var = tk.StringVar(
+            value=self._cfg.get("drive_txt_folder_id", ""))
+        tk.Label(txt_row, text="ID:", font=FONT_SMALL,
+                 bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left")
+        tk.Entry(txt_row, textvariable=self._drv_txt_id_var,
+                 width=20, font=FONT_SMALL, fg=TEXT_LIGHT).pack(side="left", padx=(2, 6))
+        self._btn(txt_row, "📁 생성/찾기", ACCENT,
+                  self._ensure_txt_folder, w=10).pack(side="left")
+
+        # 폴더 상태 레이블 + 일괄 저장
+        self._drv_folder_status_var = tk.StringVar(value="")
+        tk.Label(drv_card, textvariable=self._drv_folder_status_var,
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
+        folder_btn_row = tk.Frame(drv_card, bg=CARD_BG)
+        folder_btn_row.pack(anchor="w", pady=(4, 2))
+        self._btn(folder_btn_row, "폴더 설정 저장", ACCENT,
+                  self._save_drive_folder_settings, w=14).pack(side="left", padx=4)
+        self._btn(folder_btn_row, "🚀 두 폴더 한번에 생성", SUCCESS,
+                  self._ensure_both_folders, w=18).pack(side="left", padx=4)
+
+        tk.Label(drv_card,
+                 text="  ↑ Google 인증 후 위 버튼으로 내 Drive에 폴더를 자동 생성/연결하세요.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(0, 4))
+
+        ttk.Separator(drv_card).pack(fill="x", pady=(4, 6))
 
         # 자동 업로드 체크
         auto_row = tk.Frame(drv_card, bg=CARD_BG)
@@ -1004,11 +1135,22 @@ class App(tk.Tk):
         if not self._current_mp3:
             messagebox.showwarning("알림", "녹음하거나 파일을 선택해주세요.")
             return
-        api_key = self._cfg.get("gemini_api_key", "")
-        if not api_key:
-            messagebox.showwarning("알림", "설정 탭에서 Gemini API 키를 입력해주세요.")
-            self._nb.select(2)
-            return
+
+        # STT 엔진 선택 여부에 따라 키 유효성 검사
+        stt_eng = self._pipeline_stt_engine
+        if stt_eng == "clova":
+            if not (self._cfg.get("clova_client_id", "").strip() and
+                    self._cfg.get("clova_client_secret", "").strip()):
+                messagebox.showwarning("알림",
+                    "설정 탭에서 CLOVA Speech API 키(Client ID / Secret)를 먼저 입력해주세요.")
+                self._nb.select(2)
+                return
+        else:
+            api_key = self._cfg.get("gemini_api_key", "")
+            if not api_key:
+                messagebox.showwarning("알림", "설정 탭에서 Gemini API 키를 입력해주세요.")
+                self._nb.select(2)
+                return
         if self._processing:
             messagebox.showwarning("알림", "이미 처리 중입니다. 완료 후 시작해주세요.")
             return
@@ -1023,7 +1165,7 @@ class App(tk.Tk):
         self.update_idletasks()
         x = self.winfo_x() + self.winfo_width() // 2 - 250
         y = self.winfo_y() + self.winfo_height() // 2 - 240
-        dlg.geometry(f"500x490+{x}+{y}")
+        dlg.geometry(f"520x570+{x}+{y}")
         dlg.configure(bg=CARD_BG)
 
         tk.Label(dlg, text="변환 옵션 선택", font=FONT_H2,
@@ -1050,6 +1192,23 @@ class App(tk.Tk):
         tk.Radiobutton(frm1, text="강의 요약 (MD) — 소주제별 논리적 정리, 신앙/업무 강의 자동 적응",
                        variable=sum_mode_var, value="lecture_md",
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
+
+        # ─ STT 엔진 ──────────────────────────────────────
+        has_clova = (bool(self._cfg.get("clova_client_id", "").strip()) and
+                     bool(self._cfg.get("clova_client_secret", "").strip()))
+        frm_stt = tk.LabelFrame(dlg, text="  STT 변환 엔진  ", font=FONT_BODY,
+                                bg=CARD_BG, fg=TEXT, padx=12, pady=6)
+        frm_stt.pack(fill="x", padx=20, pady=4)
+        stt_var = tk.StringVar(value=self._pipeline_stt_engine)
+        tk.Radiobutton(frm_stt, text="Gemini (Google)",
+                       variable=stt_var, value="gemini",
+                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
+        tk.Radiobutton(frm_stt,
+                       text="CLOVA Speech (NAVER) — 한국어 특화, 타임아웃 없음 ★권장★" +
+                            ("" if has_clova else "  ← 설정 탭에서 API 키 입력"),
+                       variable=stt_var, value="clova",
+                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
+                       state="normal" if has_clova else "disabled").pack(anchor="w")
 
         # ─ AI 엔진 ───────────────────────────────────────
         frm_ai = tk.LabelFrame(dlg, text="  AI 요약 엔진  ", font=FONT_BODY,
@@ -1081,6 +1240,7 @@ class App(tk.Tk):
             confirmed["ok"] = True
             self._pipeline_sum_mode   = sum_mode_var.get()
             self._pipeline_ai_engine  = ai_var.get()
+            self._pipeline_stt_engine = stt_var.get()
             self._pipeline_rename_spk = rename_var.get()
             dlg.destroy()
 
@@ -1112,14 +1272,26 @@ class App(tk.Tk):
         self._save_status_var.set("처리 중...")
 
         def run_stt():
-            ok, text = gemini.transcribe(
-                self._current_mp3, api_key,
-                progress_cb=lambda v: self.after(0, lambda: self._set_prog(self._stt_prog, v)),
-                num_speakers=num_spk,
-                speaker_names={},
-                cancel_event=self._cancel_event,
-                status_cb=lambda msg: self.after(0, lambda: self._stt_status_var.set(msg)),
-            )
+            if self._pipeline_stt_engine == "clova":
+                ok, text = clova.transcribe(
+                    self._current_mp3,
+                    client_id=self._cfg.get("clova_client_id", ""),
+                    client_secret=self._cfg.get("clova_client_secret", ""),
+                    progress_cb=lambda v: self.after(0, lambda: self._set_prog(self._stt_prog, v)),
+                    num_speakers=num_spk,
+                    cancel_event=self._cancel_event,
+                    status_cb=lambda msg: self.after(0, lambda: self._stt_status_var.set(msg)),
+                )
+            else:
+                ok, text = gemini.transcribe(
+                    self._current_mp3,
+                    self._cfg.get("gemini_api_key", ""),
+                    progress_cb=lambda v: self.after(0, lambda: self._set_prog(self._stt_prog, v)),
+                    num_speakers=num_spk,
+                    speaker_names={},
+                    cancel_event=self._cancel_event,
+                    status_cb=lambda msg: self.after(0, lambda: self._stt_status_var.set(msg)),
+                )
             self.after(0, lambda: self._on_pipeline_stt_done(ok, text))
 
         threading.Thread(target=run_stt, daemon=True).start()
@@ -1310,9 +1482,30 @@ class App(tk.Tk):
             self._save_status_var.set("☁ Google Drive 업로드 중...")
             self.update()
 
+            mp3_fid = self._cfg.get("drive_mp3_folder_id", "")
+            txt_fid = self._cfg.get("drive_txt_folder_id", "")
+
+            if not mp3_fid or not txt_fid:
+                # 폴더 ID 미설정 시 자동 생성 후 업로드
+                mp3_name = self._cfg.get("drive_mp3_folder_name", "녹음파일")
+                txt_name = self._cfg.get("drive_txt_folder_name", "회의록(요약)")
+                r = gdrive.init_drive_folders(mp3_name, txt_name)
+                if r["mp3_ok"]:
+                    mp3_fid = r["mp3_id"]
+                    self._cfg["drive_mp3_folder_id"] = mp3_fid
+                if r["txt_ok"]:
+                    txt_fid = r["txt_id"]
+                    self._cfg["drive_txt_folder_id"] = txt_fid
+                config.save_config(self._cfg)
+
+            _mp3_fid_snap = mp3_fid
+            _txt_fid_snap = txt_fid
+
             def run_drive_upload():
                 results = gdrive.upload_meeting_files(
-                    mp3_path or "", stt_path or "", sum_path or "")
+                    mp3_path or "", stt_path or "", sum_path or "",
+                    mp3_folder_id=_mp3_fid_snap,
+                    txt_folder_id=_txt_fid_snap)
                 self.after(0, lambda: self._on_drive_upload_done(
                     results, mp3_path, stt_path, sum_path,
                     save_name, stt_text, text, msgs))
@@ -1891,6 +2084,122 @@ class App(tk.Tk):
         self._cfg["custom_prompts"] = templates
         config.save_config(self._cfg)
         self._refresh_prompt_templates()
+
+    # ── CLOVA Speech 설정 메서드 ─────────────────────────
+
+    def _toggle_clova_id_vis(self):
+        self._clova_id_show = not self._clova_id_show
+        self._clova_id_entry.config(show="" if self._clova_id_show else "*")
+
+    def _toggle_clova_secret_vis(self):
+        self._clova_secret_show = not self._clova_secret_show
+        self._clova_secret_entry.config(show="" if self._clova_secret_show else "*")
+
+    def _save_clova_keys(self):
+        self._cfg["clova_client_id"]     = self._clova_id_var.get().strip()
+        self._cfg["clova_client_secret"] = self._clova_secret_var.get().strip()
+        config.save_config(self._cfg)
+        self._clova_status_var.set("✅ CLOVA API 키 저장 완료")
+        # 파이프라인 STT 엔진도 동기화
+        self._pipeline_stt_engine = self._cfg.get("stt_engine", "gemini")
+
+    def _save_stt_engine(self):
+        eng = self._stt_engine_var.get()
+        self._cfg["stt_engine"] = eng
+        self._pipeline_stt_engine = eng
+        config.save_config(self._cfg)
+
+    def _test_clova(self):
+        cid    = self._clova_id_var.get().strip()
+        csecret = self._clova_secret_var.get().strip()
+        if not cid or not csecret:
+            messagebox.showwarning("알림", "Client ID와 Client Secret을 모두 입력해주세요.")
+            return
+        self._clova_status_var.set("연결 테스트 중...")
+        self.update()
+        ok, msg = clova.test_connection(cid, csecret)
+        self._clova_status_var.set(("✅ " if ok else "❌ ") + msg)
+
+    # ── Gemini 설정 메서드 ───────────────────────────────
+
+    # ── Google Drive 폴더 설정 메서드 ──────────────────────
+
+    def _save_drive_folder_settings(self):
+        self._cfg["drive_mp3_folder_name"] = self._drv_mp3_name_var.get().strip() or "녹음파일"
+        self._cfg["drive_txt_folder_name"] = self._drv_txt_name_var.get().strip() or "회의록(요약)"
+        self._cfg["drive_mp3_folder_id"]   = self._drv_mp3_id_var.get().strip()
+        self._cfg["drive_txt_folder_id"]   = self._drv_txt_id_var.get().strip()
+        config.save_config(self._cfg)
+        self._drv_folder_status_var.set("✅ 폴더 설정 저장 완료")
+
+    def _ensure_mp3_folder(self):
+        name = self._drv_mp3_name_var.get().strip() or "녹음파일"
+        self._drv_folder_status_var.set(f"Drive에서 '{name}' 폴더 찾는 중...")
+        self.update()
+
+        def _run():
+            ok, fid, msg = gdrive.ensure_folder(name)
+            def _done():
+                if ok:
+                    self._drv_mp3_id_var.set(fid)
+                    self._cfg["drive_mp3_folder_id"]   = fid
+                    self._cfg["drive_mp3_folder_name"] = name
+                    config.save_config(self._cfg)
+                    self._drv_folder_status_var.set(f"✅ MP3 폴더: {msg}")
+                else:
+                    self._drv_folder_status_var.set(f"❌ MP3 폴더 실패: {msg}")
+            self.after(0, _done)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _ensure_txt_folder(self):
+        name = self._drv_txt_name_var.get().strip() or "회의록(요약)"
+        self._drv_folder_status_var.set(f"Drive에서 '{name}' 폴더 찾는 중...")
+        self.update()
+
+        def _run():
+            ok, fid, msg = gdrive.ensure_folder(name)
+            def _done():
+                if ok:
+                    self._drv_txt_id_var.set(fid)
+                    self._cfg["drive_txt_folder_id"]   = fid
+                    self._cfg["drive_txt_folder_name"] = name
+                    config.save_config(self._cfg)
+                    self._drv_folder_status_var.set(f"✅ TXT 폴더: {msg}")
+                else:
+                    self._drv_folder_status_var.set(f"❌ TXT 폴더 실패: {msg}")
+            self.after(0, _done)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _ensure_both_folders(self):
+        mp3_name = self._drv_mp3_name_var.get().strip() or "녹음파일"
+        txt_name = self._drv_txt_name_var.get().strip() or "회의록(요약)"
+        self._drv_folder_status_var.set("Drive에서 두 폴더 생성/찾는 중...")
+        self.update()
+
+        def _run():
+            result = gdrive.init_drive_folders(mp3_name, txt_name)
+            def _done():
+                msgs = []
+                if result["mp3_ok"]:
+                    self._drv_mp3_id_var.set(result["mp3_id"])
+                    self._cfg["drive_mp3_folder_id"]   = result["mp3_id"]
+                    self._cfg["drive_mp3_folder_name"] = mp3_name
+                    msgs.append(f"MP3: {result['mp3_msg']}")
+                else:
+                    msgs.append(f"MP3 실패: {result['mp3_msg']}")
+                if result["txt_ok"]:
+                    self._drv_txt_id_var.set(result["txt_id"])
+                    self._cfg["drive_txt_folder_id"]   = result["txt_id"]
+                    self._cfg["drive_txt_folder_name"] = txt_name
+                    msgs.append(f"TXT: {result['txt_msg']}")
+                else:
+                    msgs.append(f"TXT 실패: {result['txt_msg']}")
+                config.save_config(self._cfg)
+                self._drv_folder_status_var.set(" | ".join(msgs))
+            self.after(0, _done)
+        threading.Thread(target=_run, daemon=True).start()
+
+    # ── Gemini 설정 메서드 ───────────────────────────────
 
     def _save_gem_key(self):
         self._cfg["gemini_api_key"] = self._gem_key_var.get().strip()
