@@ -2121,10 +2121,19 @@ class App(tk.Tk):
     def _save_drive_folder_settings(self):
         self._cfg["drive_mp3_folder_name"] = self._drv_mp3_name_var.get().strip() or "녹음파일"
         self._cfg["drive_txt_folder_name"] = self._drv_txt_name_var.get().strip() or "회의록(요약)"
-        self._cfg["drive_mp3_folder_id"]   = self._drv_mp3_id_var.get().strip()
-        self._cfg["drive_txt_folder_id"]   = self._drv_txt_id_var.get().strip()
+        # URL 또는 ID 모두 허용 — parse_folder_id로 자동 추출
+        mp3_raw = self._drv_mp3_id_var.get().strip()
+        txt_raw = self._drv_txt_id_var.get().strip()
+        mp3_id  = gdrive.parse_folder_id(mp3_raw)
+        txt_id  = gdrive.parse_folder_id(txt_raw)
+        self._cfg["drive_mp3_folder_id"] = mp3_id
+        self._cfg["drive_txt_folder_id"] = txt_id
+        if mp3_id != mp3_raw:
+            self._drv_mp3_id_var.set(mp3_id)
+        if txt_id != txt_raw:
+            self._drv_txt_id_var.set(txt_id)
         config.save_config(self._cfg)
-        self._drv_folder_status_var.set("✅ 폴더 설정 저장 완료")
+        self._drv_folder_status_var.set("✅ 폴더 ID 저장 완료")
 
     def _ensure_mp3_folder(self):
         name = self._drv_mp3_name_var.get().strip() or "녹음파일"

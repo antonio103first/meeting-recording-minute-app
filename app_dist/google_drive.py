@@ -9,9 +9,33 @@
 - upload_meeting_files(): config 기반 폴더 ID 동적 전달
 """
 import os
+import re
 import json
 from pathlib import Path
 from config import CREDENTIALS_FILE, TOKEN_FILE, GOOGLE_SCOPES, APP_DATA_DIR
+
+
+def parse_folder_id(value: str) -> str:
+    """
+    Google Drive 폴더 URL 또는 ID를 입력받아 순수 폴더 ID만 반환.
+    예: https://drive.google.com/drive/folders/1Yu6snQ... → 1Yu6snQ...
+    이미 ID 형식이면 그대로 반환.
+    """
+    if not value:
+        return ""
+    value = value.strip()
+    # URL에서 folders/{ID} 추출
+    m = re.search(r"folders/([a-zA-Z0-9_-]+)", value)
+    if m:
+        return m.group(1)
+    # ?id= 파라미터 형식
+    m = re.search(r"[?&]id=([a-zA-Z0-9_-]+)", value)
+    if m:
+        return m.group(1)
+    # 이미 순수 ID인 경우 (영숫자+하이픈+언더스코어)
+    if re.fullmatch(r"[a-zA-Z0-9_-]+", value):
+        return value
+    return value
 
 try:
     from google.oauth2.credentials import Credentials
@@ -99,6 +123,7 @@ def ensure_folder(folder_name: str, parent_id: str = "root") -> tuple:
     """Drive에서 폴더를 찾거나 없으면 생성. (ok, folder_id, folder_name) 반환"""
     if not GDRIVE_AVAILABLE:
         return False, "", "google-auth 패키지가 없습니다."
+    parent_id = parse_folder_id(parent_id) or "root"  # URL 입력도 자동 파싱
     try:
         service = _get_service()
 
@@ -180,6 +205,7 @@ def upload_file(local_path: str, folder_id: str) -> tuple:
         return False, "google-auth 패키지 없음", ""
     if not local_path or not os.path.exists(local_path):
         return False, f"파일 없음: {local_path}", ""
+    folder_id = parse_folder_id(folder_id)   # URL 입력도 자동 파싱
     if not folder_id:
         return False, "업로드 폴더 미설정 — 설정 탭 → ☁ Google Drive → 업로드 폴더 설정에서 폴더를 생성/지정해주세요.", ""
     try:
