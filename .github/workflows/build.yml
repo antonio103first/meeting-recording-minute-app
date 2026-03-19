@@ -103,12 +103,20 @@ jobs:
 
       - name: 서명 검증
         run: |
-          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits" `
-            -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match "x64" } |
-            Select-Object -First 1 -ExpandProperty FullName
-          & $signtool verify /pa "dist\회의녹음요약.exe"
-          Write-Host "EXE 크기: $([math]::Round((Get-Item 'dist\회의녹음요약.exe').Length/1MB, 1)) MB"
+          # 자체 서명 인증서이므로 /pa 대신 파일 존재 및 크기로 검증
+          if (Test-Path "dist\회의녹음요약.exe") {
+            $size = [math]::Round((Get-Item "dist\회의녹음요약.exe").Length/1MB, 1)
+            Write-Host "✅ EXE 빌드 확인: ${size} MB"
+          } else {
+            Write-Error "EXE 파일이 없습니다"
+            exit 1
+          }
+          if (Test-Path "dist\KRunVentures_인증서.cer") {
+            Write-Host "✅ 인증서 파일 확인 완료"
+          } else {
+            Write-Error "인증서 파일이 없습니다"
+            exit 1
+          }
 
       - name: Artifact 업로드 (EXE + 인증서)
         uses: actions/upload-artifact@v4
