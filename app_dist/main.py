@@ -1526,23 +1526,19 @@ class App(tk.Tk):
         """Drive 업로드 완료 콜백"""
         drive_mp3_link = drive_stt_link = drive_sum_link = ""
 
-        if results.get("mp3", {}).get("ok"):
-            drive_mp3_link = results["mp3"]["link"]
-            msgs.append(f"☁ MP3 Drive 업로드 완료")
-        elif "mp3" in results:
-            msgs.append(f"❌ MP3 Drive 실패: {results['mp3']['msg'][:40]}")
-
-        if results.get("stt", {}).get("ok"):
-            drive_stt_link = results["stt"]["link"]
-            msgs.append(f"☁ STT Drive 업로드 완료")
-        elif "stt" in results:
-            msgs.append(f"❌ STT Drive 실패: {results['stt']['msg'][:40]}")
-
-        if results.get("summary", {}).get("ok"):
-            drive_sum_link = results["summary"]["link"]
-            msgs.append(f"☁ 요약 Drive 업로드 완료")
-        elif "summary" in results:
-            msgs.append(f"❌ 요약 Drive 실패: {results['summary']['msg'][:40]}")
+        label_map = {"mp3": "MP3", "stt": "STT", "summary": "요약"}
+        for key, lbl in label_map.items():
+            r = results.get(key, {})
+            if r.get("ok"):
+                if key == "mp3":
+                    drive_mp3_link = r["link"]
+                elif key == "stt":
+                    drive_stt_link = r["link"]
+                else:
+                    drive_sum_link = r["link"]
+                msgs.append(f"☁ {lbl} Drive 업로드 완료")
+            elif r.get("msg") and r["msg"] != "파일 없음":
+                msgs.append(f"❌ {lbl} Drive 실패: {r['msg']}")
 
         self._finalize_save(mp3_path, stt_path, sum_path, save_name,
                             stt_text, text, msgs,

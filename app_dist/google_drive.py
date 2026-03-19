@@ -178,8 +178,10 @@ def upload_file(local_path: str, folder_id: str) -> tuple:
     """파일을 Google Drive의 지정 폴더 ID에 업로드, 공유 링크 반환"""
     if not GDRIVE_AVAILABLE:
         return False, "google-auth 패키지 없음", ""
+    if not local_path or not os.path.exists(local_path):
+        return False, f"파일 없음: {local_path}", ""
     if not folder_id:
-        return False, "업로드 폴더가 설정되지 않았습니다. 설정 탭 → Drive 폴더 설정에서 폴더를 지정해주세요.", ""
+        return False, "업로드 폴더 미설정 — 설정 탭 → ☁ Google Drive → 업로드 폴더 설정에서 폴더를 생성/지정해주세요.", ""
     try:
         service   = _get_service()
         file_name = Path(local_path).name
@@ -190,21 +192,34 @@ def upload_file(local_path: str, folder_id: str) -> tuple:
         }
         mime  = mime_map.get(ext, "application/octet-stream")
         meta  = {"name": file_name, "parents": [folder_id]}
-        media = MediaFileUpload(local_path, mimetype=mime, resumable=True)
+        media = MediaFileUpload(local_path, mimetype=mime, resumable=False)
         f = service.files().create(
-            body=meta, media_body=media, fields="id").execute()
-        fid = f.get("id")
-        # 링크 공유 (뷰 권한)
-        service.permissions().create(
-            fileId=fid,
-            body={"type": "anyone", "role": "reader"},
-        ).execute()
-        link = f"https://drive.google.com/file/d/{fid}/view"
+            body=meta, media_body=media, fields="id, webViewLink").execute()
+        fid  = f.get("id", "")
+        link = f.get("webViewLink", f"https://drive.google.com/file/d/{fid}/view")
+
+        # 공유 링크 설정 — 조직 정책으로 막혀 있어도 업로드 자체는 성공 처리
+        try:
+            service.permissions().create(
+                fileId=fid,
+                body={"type": "anyone", "role": "reader"},
+            ).execute()
+        except Exception:
+            pass   # 공유 설정 실패는 무시 (조직 정책 제한 등)
+
         return True, "업로드 완료", link
     except RuntimeError as e:
         return False, str(e), ""
     except Exception as e:
-        return False, f"업로드 실패: {e}", ""
+        err = str(e)
+        # 흔한 오류에 대한 친절한 메시지
+        if "invalid_grant" in err or "Token has been expired" in err:
+            return False, "Drive 토큰 만료 — 설정 탭에서 '연결 해제' 후 재인증해주세요.", ""
+        if "insufficientPermissions" in err or "forbidden" in err.lower():
+            return False, "Drive 권한 오류 — Google Cloud Console에서 Drive API 권한을 확인해주세요.", ""
+        if "notFound" in err:
+            return False, f"폴더를 찾을 수 없음 (ID: {folder_id[:12]}…) — 설정 탭에서 폴더를 다시 생성해주세요.", ""
+        return False, f"업로드 실패: {err[:200]}", ""
 
 
 def upload_meeting_files(mp3_path: str, stt_path: str, summary_path: str,
