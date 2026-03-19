@@ -65,12 +65,20 @@ cd /d "%~dp0"
     --add-data "app_dist\recorder.py;." ^
     --add-data "app_dist\gemini_service.py;." ^
     --add-data "app_dist\claude_service.py;." ^
+    --add-data "app_dist\clova_service.py;." ^
     --add-data "app_dist\file_manager.py;." ^
+    --add-data "app_dist\google_drive.py;." ^
     --hidden-import "sounddevice" ^
     --hidden-import "soundfile" ^
     --hidden-import "google.genai" ^
     --hidden-import "google.genai.types" ^
+    --hidden-import "google.oauth2.credentials" ^
+    --hidden-import "google_auth_oauthlib.flow" ^
+    --hidden-import "google.auth.transport.requests" ^
+    --hidden-import "googleapiclient.discovery" ^
+    --hidden-import "googleapiclient.http" ^
     --hidden-import "anthropic" ^
+    --hidden-import "requests" ^
     --hidden-import "tkinter" ^
     --hidden-import "tkinter.ttk" ^
     --hidden-import "sqlite3" ^
@@ -115,8 +123,8 @@ echo.
 echo  수신자 안내:
 echo  1. EXE 실행
 echo  2. 첫 실행 시 설정 마법사 자동 표시
-echo  3. aistudio.google.com에서 무료 API 키 발급
-echo  4. API 키 입력 후 사용 시작
+echo  3. CLOVA Speech API 키 또는 Gemini API 키 입력
+echo  4. 설정 탭 -^> Drive 폴더 생성 버튼 클릭 후 업로드 사용
 echo ================================================
 echo.
 pause
