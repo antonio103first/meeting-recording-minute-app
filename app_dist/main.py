@@ -57,6 +57,15 @@ class App(tk.Tk):
         self.configure(bg=BG)
         self.resizable(True, True)
 
+        # 앱 아이콘 설정
+        try:
+            _base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            _ico = os.path.join(_base, 'app_icon.ico')
+            if os.path.exists(_ico):
+                self.wm_iconbitmap(_ico)
+        except Exception:
+            pass
+
         # 앱 데이터 초기화
         config.ensure_dirs()
         database.init_database()
