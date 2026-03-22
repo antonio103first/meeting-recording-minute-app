@@ -24,7 +24,9 @@ jobs:
     - name: 패키지 설치
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller pillow sounddevice soundfile numpy requests google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
+        pip install pyinstaller pillow sounddevice soundfile numpy requests
+        pip install google-generativeai
+        pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
 
     - name: 아이콘 생성
       run: python make_icon.py
@@ -47,6 +49,8 @@ jobs:
           --hidden-import "google_auth_oauthlib.flow" `
           --hidden-import "googleapiclient.discovery" `
           --hidden-import "googleapiclient.http" `
+          --hidden-import "google.generativeai" `
+          --collect-all "google.generativeai" `
           app_dist/main.py
 
     - name: EXE 확인
