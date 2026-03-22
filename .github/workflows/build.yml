@@ -5,6 +5,9 @@ on:
     branches: [ master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -20,6 +23,7 @@ jobs:
 
     - name: 패키지 설치
       run: |
+        python -m pip install --upgrade pip
         pip install pyinstaller pillow sounddevice soundfile numpy requests google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
 
     - name: 아이콘 생성
@@ -27,29 +31,33 @@ jobs:
 
     - name: EXE 빌드 (PyInstaller)
       run: |
-        pyinstaller --onefile --windowed --name="MeetingMinute" ^
-          --add-data "app_dist/config.py;." ^
-          --add-data "app_dist/database.py;." ^
-          --add-data "app_dist/recorder.py;." ^
-          --add-data "app_dist/gemini_service.py;." ^
-          --add-data "app_dist/clova_service.py;." ^
-          --add-data "app_dist/file_manager.py;." ^
-          --add-data "app_dist/google_drive.py;." ^
-          --add-data "app_icon.ico;." ^
+        pyinstaller --onefile --windowed `
+          --name "회의녹음요약" `
+          --icon app_icon.ico `
+          --add-data "app_dist/config.py;." `
+          --add-data "app_dist/database.py;." `
+          --add-data "app_dist/recorder.py;." `
+          --add-data "app_dist/gemini_service.py;." `
+          --add-data "app_dist/clova_service.py;." `
+          --add-data "app_dist/file_manager.py;." `
+          --add-data "app_dist/google_drive.py;." `
+          --hidden-import "requests" `
+          --hidden-import "google.auth" `
+          --hidden-import "google.auth.transport.requests" `
+          --hidden-import "google_auth_oauthlib.flow" `
+          --hidden-import "googleapiclient.discovery" `
+          --hidden-import "googleapiclient.http" `
           app_dist/main.py
-      shell: cmd
 
     - name: EXE 확인
       run: dir dist\
 
-    - name: 태그 생성 및 릴리즈 업로드
+    - name: 릴리즈 생성 및 EXE 업로드
       uses: softprops/action-gh-release@v2
       with:
         tag_name: build-${{ github.run_number }}
-        name: "MeetingMinute Build #${{ github.run_number }}"
+        name: "회의녹음요약 Build #${{ github.run_number }}"
         body: |
-          자동 빌드 - ${{ github.sha }}
-          - IconKitchen MEET 디자인 아이콘 적용
-          - CLOVA + Gemini + Google Drive 연동
-        files: dist/MeetingMinute.exe
-        token: ${{ secrets.GITHUB_TOKEN }}
+          자동 빌드 - MEET 아이콘 적용
+          커밋: ${{ github.sha }}
+        files: dist/회의녹음요약.exe
