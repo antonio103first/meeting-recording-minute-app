@@ -59,10 +59,13 @@ class App(tk.Tk):
 
         # 앱 아이콘 설정
         try:
+            from PIL import Image, ImageTk
             _base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-            _ico = os.path.join(_base, 'app_icon.ico')
-            if os.path.exists(_ico):
-                self.wm_iconbitmap(_ico)
+            _png = os.path.join(_base, 'app_icon.png')
+            if os.path.exists(_png):
+                _img = ImageTk.PhotoImage(Image.open(_png))
+                self.iconphoto(True, _img)
+                self._icon_img = _img
         except Exception:
             pass
 
