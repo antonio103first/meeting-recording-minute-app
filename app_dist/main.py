@@ -64,8 +64,15 @@ class App(tk.Tk):
             _png = os.path.join(_base, 'app_icon.png')
             if os.path.exists(_png):
                 _img = ImageTk.PhotoImage(Image.open(_png))
-                self.iconphoto(True, _img)
-                self._icon_img = _img
+        try:
+            from PIL import Image as _I, ImageTk as _IT
+            import sys as _s, os as _o
+            _b = getattr(_s, '_MEIPASS', _o.path.dirname(_o.path.abspath(__file__)))
+            _p = _o.path.join(_b, 'app_icon.png')
+            if _o.path.exists(_p):
+                _ph = _IT.PhotoImage(_I.open(_p))
+                self.iconphoto(True, _ph)
+                self._icon_ref = _ph
         except Exception:
             pass
 
