@@ -56,25 +56,18 @@ class App(tk.Tk):
         self.minsize(800, 600)
         self.configure(bg=BG)
         self.resizable(True, True)
-
-        # 앱 아이콘 설정
         try:
-            from PIL import Image, ImageTk
-            _base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-            _png = os.path.join(_base, 'app_icon.png')
-            if os.path.exists(_png):
-                _img = ImageTk.PhotoImage(Image.open(_png))
-        try:
-            from PIL import Image as _I, ImageTk as _IT
-            import sys as _s, os as _o
-            _b = getattr(_s, '_MEIPASS', _o.path.dirname(_o.path.abspath(__file__)))
-            _p = _o.path.join(_b, 'app_icon.png')
-            if _o.path.exists(_p):
-                _ph = _IT.PhotoImage(_I.open(_p))
-                self.iconphoto(True, _ph)
-                self._icon_ref = _ph
+            from PIL import Image as _PILImg, ImageTk as _PILTk
+            _icon_base = getattr(__import__('sys'), '_MEIPASS', __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+            _icon_path = __import__('os').path.join(_icon_base, 'app_icon.png')
+            if __import__('os').path.exists(_icon_path):
+                _icon_img = _PILTk.PhotoImage(_PILImg.open(_icon_path))
+                self.iconphoto(True, _icon_img)
+                self._keep_icon = _icon_img
         except Exception:
             pass
+
+        # 앱 아이콘 설정
 
         # 앱 데이터 초기화
         config.ensure_dirs()
