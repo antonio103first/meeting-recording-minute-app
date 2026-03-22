@@ -1,12 +1,41 @@
 """
 회의녹음요약 - Google Drive 연동 (배포용 A방식)
 각 사용자가 Google Cloud Console에서 직접 발급한 OAuth 자격증명 사용
+
+[수정 이력]
+- 하드코딩 폴더 ID 제거 → 사용자별 폴더 자동 생성/조회
+- ensure_folder() 추가: 폴더 없으면 자동 생성
+- list_drive_folders() 추가: 드라이브 폴더 목록 조회
+- upload_meeting_files(): config 기반 폴더 ID 동적 전달
 """
 import os
+import re
 import json
 from pathlib import Path
-from config import (CREDENTIALS_FILE, TOKEN_FILE, GOOGLE_SCOPES,
-                    APP_DATA_DIR, DRIVE_MP3_FOLDER_ID, DRIVE_TXT_FOLDER_ID)
+from config import CREDENTIALS_FILE, TOKEN_FILE, GOOGLE_SCOPES, APP_DATA_DIR
+
+
+def parse_folder_id(value: str) -> str:
+    """
+    Google Drive 폴더 URL 또는 ID를 입력받아 순수 폴더 ID만 반환.
+    예: https://drive.google.com/drive/folders/1Yu6snQ... → 1Yu6snQ...
+    이미 ID 형식이면 그대로 반환.
+    """
+    if not value:
+        return ""
+    value = value.strip()
+    # URL에서 folders/{ID} 추출
+    m = re.search(r"folders/([a-zA-Z0-9_-]+)", value)
+    if m:
+        return m.group(1)
+    # ?id= 파라미터 형식
+    m = re.search(r"[?&]id=([a-zA-Z0-9_-]+)", value)
+    if m:
+        return m.group(1)
+    # 이미 순수 ID인 경우 (영숫자+하이픈+언더스코어)
+    if re.fullmatch(r"[a-zA-Z0-9_-]+", value):
+        return value
+    return value
 
 try:
     from google.oauth2.credentials import Credentials
@@ -88,10 +117,97 @@ def _get_service():
     return build("drive", "v3", credentials=creds)
 
 
+# ── 폴더 관리 ────────────────────────────────────────────
+
+def ensure_folder(folder_name: str, parent_id: str = "root") -> tuple:
+    """Drive에서 폴더를 찾거나 없으면 생성. (ok, folder_id, folder_name) 반환"""
+    if not GDRIVE_AVAILABLE:
+        return False, "", "google-auth 패키지가 없습니다."
+    parent_id = parse_folder_id(parent_id) or "root"  # URL 입력도 자동 파싱
+    try:
+        service = _get_service()
+
+        # 동일 이름 폴더 검색
+        q = (f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder'"
+             f" and '{parent_id}' in parents and trashed=false")
+        res = service.files().list(
+            q=q, spaces="drive", fields="files(id, name)", pageSize=1
+        ).execute()
+        files = res.get("files", [])
+
+        if files:
+            fid = files[0]["id"]
+            return True, fid, f"기존 폴더 사용: '{folder_name}' (ID: {fid[:12]}...)"
+
+        # 폴더 신규 생성
+        meta = {
+            "name": folder_name,
+            "mimeType": "application/vnd.google-apps.folder",
+            "parents": [parent_id],
+        }
+        created = service.files().create(body=meta, fields="id").execute()
+        fid = created.get("id")
+        return True, fid, f"새 폴더 생성: '{folder_name}' (ID: {fid[:12]}...)"
+
+    except RuntimeError as e:
+        return False, "", str(e)
+    except Exception as e:
+        return False, "", f"폴더 생성 오류: {str(e)[:200]}"
+
+
+def get_folder_name(folder_id: str) -> str:
+    """폴더 ID로 폴더 이름 조회. 실패 시 빈 문자열 반환"""
+    if not GDRIVE_AVAILABLE or not folder_id:
+        return ""
+    try:
+        service = _get_service()
+        res = service.files().get(fileId=folder_id, fields="name").execute()
+        return res.get("name", "")
+    except Exception:
+        return ""
+
+
+def list_drive_folders(parent_id: str = "root", page_size: int = 50) -> list:
+    """Drive 폴더 목록 반환 → [{"id": ..., "name": ...}, ...]"""
+    if not GDRIVE_AVAILABLE:
+        return []
+    try:
+        service = _get_service()
+        q = (f"mimeType='application/vnd.google-apps.folder'"
+             f" and '{parent_id}' in parents and trashed=false")
+        res = service.files().list(
+            q=q, spaces="drive",
+            fields="files(id, name)",
+            orderBy="name",
+            pageSize=page_size,
+        ).execute()
+        return res.get("files", [])
+    except Exception:
+        return []
+
+
+def init_drive_folders(mp3_folder_name: str = "녹음파일",
+                       txt_folder_name: str = "회의록(요약)") -> tuple:
+    """MP3/TXT 두 폴더를 Drive에서 찾거나 생성, 폴더 IDs 반환"""
+    ok1, fid1, msg1 = ensure_folder(mp3_folder_name)
+    ok2, fid2, msg2 = ensure_folder(txt_folder_name)
+    return {
+        "mp3_ok": ok1, "mp3_id": fid1, "mp3_msg": msg1,
+        "txt_ok": ok2, "txt_id": fid2, "txt_msg": msg2,
+    }
+
+
+# ── 파일 업로드 ──────────────────────────────────────────
+
 def upload_file(local_path: str, folder_id: str) -> tuple:
     """파일을 Google Drive의 지정 폴더 ID에 업로드, 공유 링크 반환"""
     if not GDRIVE_AVAILABLE:
         return False, "google-auth 패키지 없음", ""
+    if not local_path or not os.path.exists(local_path):
+        return False, f"파일 없음: {local_path}", ""
+    folder_id = parse_folder_id(folder_id)   # URL 입력도 자동 파싱
+    if not folder_id:
+        return False, "업로드 폴더 미설정 — 설정 탭 → ☁ Google Drive → 업로드 폴더 설정에서 폴더를 생성/지정해주세요.", ""
     try:
         service   = _get_service()
         file_name = Path(local_path).name
@@ -102,25 +218,39 @@ def upload_file(local_path: str, folder_id: str) -> tuple:
         }
         mime  = mime_map.get(ext, "application/octet-stream")
         meta  = {"name": file_name, "parents": [folder_id]}
-        media = MediaFileUpload(local_path, mimetype=mime, resumable=True)
+        media = MediaFileUpload(local_path, mimetype=mime, resumable=False)
         f = service.files().create(
-            body=meta, media_body=media, fields="id").execute()
-        fid = f.get("id")
-        service.permissions().create(
-            fileId=fid,
-            body={"type": "anyone", "role": "reader"},
-        ).execute()
-        link = f"https://drive.google.com/file/d/{fid}/view"
+            body=meta, media_body=media, fields="id, webViewLink").execute()
+        fid  = f.get("id", "")
+        link = f.get("webViewLink", f"https://drive.google.com/file/d/{fid}/view")
+
+        # 공유 링크 설정 — 조직 정책으로 막혀 있어도 업로드 자체는 성공 처리
+        try:
+            service.permissions().create(
+                fileId=fid,
+                body={"type": "anyone", "role": "reader"},
+            ).execute()
+        except Exception:
+            pass   # 공유 설정 실패는 무시 (조직 정책 제한 등)
+
         return True, "업로드 완료", link
     except RuntimeError as e:
         return False, str(e), ""
     except Exception as e:
-        return False, f"업로드 실패: {e}", ""
+        err = str(e)
+        # 흔한 오류에 대한 친절한 메시지
+        if "invalid_grant" in err or "Token has been expired" in err:
+            return False, "Drive 토큰 만료 — 설정 탭에서 '연결 해제' 후 재인증해주세요.", ""
+        if "insufficientPermissions" in err or "forbidden" in err.lower():
+            return False, "Drive 권한 오류 — Google Cloud Console에서 Drive API 권한을 확인해주세요.", ""
+        if "notFound" in err:
+            return False, f"폴더를 찾을 수 없음 (ID: {folder_id[:12]}…) — 설정 탭에서 폴더를 다시 생성해주세요.", ""
+        return False, f"업로드 실패: {err[:200]}", ""
 
 
 def upload_meeting_files(mp3_path: str, stt_path: str, summary_path: str,
-                         mp3_folder_id: str = DRIVE_MP3_FOLDER_ID,
-                         txt_folder_id: str = DRIVE_TXT_FOLDER_ID) -> dict:
+                         mp3_folder_id: str = "",
+                         txt_folder_id: str = "") -> dict:
     """회의 파일 3개 일괄 업로드 — MP3와 TXT를 각각 다른 폴더에 저장"""
     results = {}
     for label, path, fid in [
