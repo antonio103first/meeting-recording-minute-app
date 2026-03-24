@@ -2320,10 +2320,11 @@ class App(tk.Tk):
     def _share_email(self, data: dict):
         """✉ 기본 메일 클라이언트로 이메일 전송"""
         import urllib.parse
+        # safe="" 전면 인코딩 시 URL 길이 폭발 → 본문은 앞 2000자만, 줄바꿈 보존
         subject = urllib.parse.quote(
             f"[회의록] {data.get('file_name', '회의록')}", safe="")
-        body = urllib.parse.quote(
-            data.get("summary_text", ""), safe="")
+        raw_body = data.get("summary_text", "")[:2000]
+        body = urllib.parse.quote(raw_body, safe="\r\n")
         webbrowser.open(f"mailto:?subject={subject}&body={body}")
 
     def _share_kakao(self, data: dict):
@@ -2587,6 +2588,7 @@ class App(tk.Tk):
 
         def _ping():
             import subprocess, sys
+            msg = "❌ 알 수 없는 오류"   # 명시적 초기화 (Agent 검증 반영)
             try:
                 if sys.platform == "win32":
                     result = subprocess.run(
@@ -2600,7 +2602,8 @@ class App(tk.Tk):
                 msg = f"✅ {ip} 응답 확인" if ok else f"❌ {ip} 응답 없음 (방화벽 또는 IP 확인)"
             except Exception as e:
                 msg = f"❌ 테스트 실패: {str(e)[:60]}"
-            self.after(0, lambda: self._net_printer_status_var.set(msg))
+            final_msg = msg   # lambda closure 안전 캡처
+            self.after(0, lambda: self._net_printer_status_var.set(final_msg))
 
         threading.Thread(target=_ping, daemon=True).start()
 
