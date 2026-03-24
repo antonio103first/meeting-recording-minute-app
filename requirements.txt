@@ -9,4 +9,6 @@ google-api-python-client>=2.108.0
 Pillow
 requests>=2.31.0
 anthropic
+openai>=1.0.0
+markdown>=3.5.0
 pyinstaller>=6.0.0

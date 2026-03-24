@@ -44,17 +44,28 @@ jobs:
             --add-data "app_dist/database.py;." `
             --add-data "app_dist/recorder.py;." `
             --add-data "app_dist/gemini_service.py;." `
+            --add-data "app_dist/claude_service.py;." `
             --add-data "app_dist/clova_service.py;." `
             --add-data "app_dist/file_manager.py;." `
             --add-data "app_dist/google_drive.py;." `
-            --hidden-import "requests" `
-            --hidden-import "anthropic" `
-            --hidden-import "google.auth" `
+            --hidden-import "sounddevice" `
+            --hidden-import "soundfile" `
+            --hidden-import "google.genai" `
+            --hidden-import "google.genai.types" `
+            --hidden-import "google.oauth2.credentials" `
             --hidden-import "google.auth.transport.requests" `
             --hidden-import "google_auth_oauthlib.flow" `
             --hidden-import "googleapiclient.discovery" `
             --hidden-import "googleapiclient.http" `
             --hidden-import "googleapiclient.errors" `
+            --hidden-import "anthropic" `
+            --hidden-import "openai" `
+            --hidden-import "requests" `
+            --hidden-import "markdown" `
+            --hidden-import "tkinter" `
+            --hidden-import "tkinter.ttk" `
+            --hidden-import "sqlite3" `
+            --hidden-import "webbrowser" `
             app_dist/main.py
 
       - name: 코드 서명 인증서 생성 및 EXE 서명

@@ -5,7 +5,8 @@
 Google Drive A방식: 각 사용자가 직접 OAuth 자격증명 설정
 
 v3 신규 기능:
-  F-01: 회의목록 탭 — 요약/STT 분리뷰 + 4개 액션 버튼
+  F-01: 회의목록 탭 — 요약/STT 분리뷰 + 5개 액션 버튼
+  F-02: PDF 내보내기 / Markdown→HTML 렌더링 인쇄 고도화
   F-03: 전 방식 MD 파일 저장 통일
   F-04: 흐름 중심 요약 방식 추가
   F-05: 설정 탭 — ChatGPT API 섹션 추가
@@ -384,6 +385,8 @@ class App(tk.Tk):
                   self._print_meeting, w=12).pack(side="left", padx=4)
         self._btn(btn_row, "📤 공유 (파일탐색기)", "#16A085",
                   self._share_meeting, w=18).pack(side="left", padx=4)
+        self._btn(btn_row, "📥 PDF 저장", "#D35400",
+                  self._export_pdf_meeting, w=12).pack(side="left", padx=4)
         self._btn(btn_row, "🗑 삭제", DANGER,
                   self._delete_meeting, w=10).pack(side="left", padx=4)
 
@@ -2118,6 +2121,44 @@ class App(tk.Tk):
         else:
             # 파일탐색기로 요약 폴더 열기
             fm.open_file_in_explorer(str(config.SUMMARY_SAVE_DIR))
+
+    def _export_pdf_meeting(self):
+        """📥 PDF 저장 — 회의록 요약을 PDF(또는 HTML) 파일로 내보내기"""
+        sel = self._tree.selection()
+        if not sel:
+            messagebox.showwarning("알림", "내보낼 항목을 선택해주세요.")
+            return
+        mid  = int(sel[0])
+        data = database.get_meeting(mid)
+        summary_text = data.get("summary_text", "")
+        if not summary_text:
+            messagebox.showwarning("알림", "요약 내용이 없습니다.")
+            return
+
+        file_name = data.get("file_name", "회의록")
+        default_name = f"{Path(file_name).stem}_회의록.pdf"
+
+        out_path = filedialog.asksaveasfilename(
+            title="PDF 저장",
+            initialfile=default_name,
+            defaultextension=".pdf",
+            filetypes=[("PDF 파일", "*.pdf"), ("HTML 파일", "*.html"), ("모든 파일", "*.*")],
+            initialdir=str(config.SUMMARY_SAVE_DIR),
+        )
+        if not out_path:
+            return
+
+        ok, result = fm.export_pdf(summary_text, out_path, title=Path(file_name).stem)
+        if ok:
+            ext = Path(result).suffix.lower()
+            if ext == ".html":
+                msg = f"HTML 파일로 저장되었습니다.\n(PDF 변환은 weasyprint 설치 필요)\n\n{result}"
+            else:
+                msg = f"PDF 저장 완료!\n\n{result}"
+            if messagebox.askyesno("저장 완료", msg + "\n\n파일 위치를 탐색기에서 열겠습니까?"):
+                fm.open_file_in_explorer(result)
+        else:
+            messagebox.showerror("내보내기 실패", result)
 
     def _delete_meeting(self):
         sel = self._tree.selection()

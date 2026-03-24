@@ -78,6 +78,8 @@ cd /d "%~dp0"
     --hidden-import "googleapiclient.discovery" ^
     --hidden-import "googleapiclient.http" ^
     --hidden-import "anthropic" ^
+    --hidden-import "openai" ^
+    --hidden-import "markdown" ^
     --hidden-import "requests" ^
     --hidden-import "tkinter" ^
     --hidden-import "tkinter.ttk" ^
