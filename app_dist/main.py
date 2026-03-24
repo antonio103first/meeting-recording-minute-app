@@ -1,8 +1,16 @@
 """
-회의녹음요약 - 메인 GUI (배포용)
+회의녹음요약 v3 - 메인 GUI
 탭 구성: 녹음/변환 | 회의목록 | 설정
 자동화 파이프라인: STT → (화자이름) → 요약 → 로컬 저장 → Drive 업로드(선택)
 Google Drive A방식: 각 사용자가 직접 OAuth 자격증명 설정
+
+v3 신규 기능:
+  F-01: 회의목록 탭 — 요약/STT 분리뷰 + 4개 액션 버튼
+  F-03: 전 방식 MD 파일 저장 통일
+  F-04: 흐름 중심 요약 방식 추가
+  F-05: 설정 탭 — ChatGPT API 섹션 추가
+  F-06: 녹음탭 — 흐름중심 옵션 + ChatGPT 엔진 선택
+  F-06-S: 저장 구조 3폴더 분리 (MP3 / STT .md / 회의록 .md)
 """
 import sys
 import os
@@ -22,6 +30,7 @@ import database
 import recorder as rec_mod
 import gemini_service as gemini
 import claude_service as claude
+import clova_service as clova
 import file_manager as fm
 import google_drive as gdrive
 
@@ -56,6 +65,15 @@ class App(tk.Tk):
         self.configure(bg=BG)
         self.resizable(True, True)
 
+        # 앱 아이콘 설정
+        try:
+            _base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            _ico = os.path.join(_base, 'app_icon.ico')
+            if os.path.exists(_ico):
+                self.wm_iconbitmap(_ico)
+        except Exception:
+            pass
+
         # 앱 데이터 초기화
         config.ensure_dirs()
         database.init_database()
@@ -72,10 +90,12 @@ class App(tk.Tk):
 
         # 파이프라인 임시 저장
         self._pipeline_sum_mode    = "speaker"
-        self._pipeline_ai_engine   = "gemini"   # "gemini" | "claude"
+        self._pipeline_ai_engine   = self._cfg.get("summary_engine", "gemini")  # "gemini" | "claude" | "chatgpt"
+        self._pipeline_stt_engine  = self._cfg.get("stt_engine", "gemini")      # "gemini" | "clova"
         self._pipeline_rename_spk  = False
         self._current_sum_path     = None
         self._metrics_text         = ""
+        self._selected_meeting_data = {}
 
         self._build_ui()
         self._apply_style()
@@ -312,7 +332,7 @@ class App(tk.Tk):
         self._metrics_box.pack(fill="x")
 
     # ════════════════════════════════════════════════════
-    # 탭 2 : 회의 목록
+    # 탭 2 : 회의 목록 (v3 — 분리뷰 + 4개 액션 버튼)
     # ════════════════════════════════════════════════════
     def _build_tab_list(self):
         parent = self._tab_list
@@ -352,21 +372,44 @@ class App(tk.Tk):
         self._tree.bind("<<TreeviewSelect>>", self._on_list_select)
         paned.add(tree_frame, weight=3)
 
-        # ─ 하단 패널: 버튼 + 내용보기 ──────────────────
+        # ─ 하단 패널: 4개 액션 버튼 + 분리뷰(요약/STT) ──
         bot_frame = tk.Frame(paned, bg=BG)
 
+        # 4개 액션 버튼 행
         btn_row = tk.Frame(bot_frame, bg=BG)
-        btn_row.pack(fill="x", pady=(4, 4))
-        self._btn(btn_row, "📄 내용 보기", ACCENT,
-                  self._view_meeting, w=12).pack(side="left", padx=4)
+        btn_row.pack(fill="x", pady=(4, 2))
+        self._btn(btn_row, "📄 전체 보기", ACCENT,
+                  self._view_meeting_full, w=12).pack(side="left", padx=4)
+        self._btn(btn_row, "🖨 출력·인쇄", "#8E44AD",
+                  self._print_meeting, w=12).pack(side="left", padx=4)
+        self._btn(btn_row, "📤 공유 (파일탐색기)", "#16A085",
+                  self._share_meeting, w=18).pack(side="left", padx=4)
         self._btn(btn_row, "🗑 삭제", DANGER,
                   self._delete_meeting, w=10).pack(side="left", padx=4)
 
-        self._detail_box = scrolledtext.ScrolledText(
-            bot_frame, font=FONT_BODY, wrap="word",
-            bg=CARD_BG, relief="solid", bd=1)
-        self._detail_box.pack(fill="both", expand=True)
-        paned.add(bot_frame, weight=1)
+        # 요약 / STT 분리 탭바
+        self._detail_nb = ttk.Notebook(bot_frame)
+        self._detail_nb.pack(fill="both", expand=True, pady=(4, 0))
+
+        self._sum_detail_frame  = tk.Frame(self._detail_nb, bg=CARD_BG)
+        self._stt_detail_frame  = tk.Frame(self._detail_nb, bg=CARD_BG)
+        self._detail_nb.add(self._sum_detail_frame,  text="  📋 회의록 요약  ")
+        self._detail_nb.add(self._stt_detail_frame,  text="  📝 STT 원문  ")
+
+        self._sum_detail_box = scrolledtext.ScrolledText(
+            self._sum_detail_frame, font=FONT_BODY, wrap="word",
+            bg=CARD_BG, relief="flat", bd=0)
+        self._sum_detail_box.pack(fill="both", expand=True)
+
+        self._stt_detail_box = scrolledtext.ScrolledText(
+            self._stt_detail_frame, font=FONT_BODY, wrap="word",
+            bg=CARD_BG, relief="flat", bd=0)
+        self._stt_detail_box.pack(fill="both", expand=True)
+
+        # 하위 호환용 alias (구 코드에서 _detail_box 참조)
+        self._detail_box = self._sum_detail_box
+
+        paned.add(bot_frame, weight=2)
 
     # ════════════════════════════════════════════════════
     # 탭 3 : 설정
@@ -426,6 +469,78 @@ class App(tk.Tk):
                  text="▶ aistudio.google.com 에서 무료 API 키를 발급받으세요.",
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(4, 0))
 
+        # ─ CLOVA Speech API ─────────────────────────────
+        self._card(inner, "🎤 CLOVA Speech API 설정 (NAVER Cloud)").pack(fill="x", **pad)
+        clova_card = self._last_card
+
+        tk.Label(clova_card,
+                 text="Gemini STT 타임아웃 문제 해소 — 한국어 특화 STT (CER ~9.5%)",
+                 font=FONT_SMALL, bg=CARD_BG, fg=SUCCESS).pack(anchor="w", pady=(0, 6))
+
+        # Invoke URL
+        tk.Label(clova_card, text="Invoke URL:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT).pack(anchor="w")
+        self._clova_id_var = tk.StringVar(value=self._cfg.get("clova_invoke_url", ""))
+        clova_id_row = tk.Frame(clova_card, bg=CARD_BG)
+        clova_id_row.pack(fill="x", pady=(2, 4))
+        self._clova_id_entry = tk.Entry(
+            clova_id_row, textvariable=self._clova_id_var,
+            width=52, font=FONT_BODY)
+        self._clova_id_entry.pack(side="left")
+        self._clova_id_show = True   # URL은 항상 표시
+
+        # Secret Key
+        tk.Label(clova_card, text="Secret Key:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT).pack(anchor="w")
+        self._clova_secret_var = tk.StringVar(value=self._cfg.get("clova_secret_key", ""))
+        clova_sec_row = tk.Frame(clova_card, bg=CARD_BG)
+        clova_sec_row.pack(fill="x", pady=(2, 6))
+        self._clova_secret_entry = tk.Entry(
+            clova_sec_row, textvariable=self._clova_secret_var,
+            width=52, font=FONT_BODY, show="*")
+        self._clova_secret_entry.pack(side="left")
+        self._clova_secret_show = False
+        self._btn(clova_sec_row, "👁", TEXT_LIGHT,
+                  self._toggle_clova_secret_vis, w=3).pack(side="left", padx=4)
+
+        # STT 기본 엔진 선택
+        stt_eng_row = tk.Frame(clova_card, bg=CARD_BG)
+        stt_eng_row.pack(fill="x", pady=(0, 4))
+        tk.Label(stt_eng_row, text="기본 STT 엔진:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT).pack(side="left")
+        self._stt_engine_var = tk.StringVar(value=self._cfg.get("stt_engine", "gemini"))
+        tk.Radiobutton(stt_eng_row, text="Gemini",
+                       variable=self._stt_engine_var, value="gemini",
+                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
+                       command=self._save_stt_engine).pack(side="left", padx=(10, 4))
+        tk.Radiobutton(stt_eng_row, text="CLOVA Speech (권장)",
+                       variable=self._stt_engine_var, value="clova",
+                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
+                       command=self._save_stt_engine).pack(side="left", padx=4)
+        # ChatGPT STT는 설정 탭 ChatGPT 섹션에서 연동 (Whisper API)
+        # 변환 시작 다이얼로그에서 매번 선택 가능
+
+        clova_btn_row = tk.Frame(clova_card, bg=CARD_BG)
+        clova_btn_row.pack(pady=4)
+        self._btn(clova_btn_row, "저장", ACCENT,
+                  self._save_clova_keys, w=8).pack(side="left", padx=4)
+        self._btn(clova_btn_row, "연결 테스트", SUCCESS,
+                  self._test_clova, w=12).pack(side="left", padx=4)
+        self._btn(clova_btn_row, "🌐 NCP 콘솔", TEXT_LIGHT,
+                  lambda: __import__("webbrowser").open(
+                      "https://console.ncloud.com/ai-service/clovaSpeech"),
+                  w=12).pack(side="left", padx=4)
+
+        self._clova_status_var = tk.StringVar(value="")
+        tk.Label(clova_card, textvariable=self._clova_status_var,
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack()
+        tk.Label(clova_card,
+                 text="▶ console.ncloud.com → AI Service → CLOVA Speech에서 API 키를 발급받으세요.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(4, 0))
+        tk.Label(clova_card,
+                 text="  장시간 회의 녹음도 청크 분할로 안정적 처리 (타임아웃 없음)",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
+
         # ─ Claude API ───────────────────────────────────
         self._card(inner, "🤖 Claude API 설정 (Anthropic)").pack(fill="x", **pad)
         cl_card = self._last_card
@@ -457,6 +572,42 @@ class App(tk.Tk):
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(4, 0))
         tk.Label(cl_card,
                  text="  입력 시 변환 옵션에서 'Claude' 엔진을 선택할 수 있습니다.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
+
+        # ─ ChatGPT API ──────────────────────────────────
+        self._card(inner, "🤖 ChatGPT API 설정 (OpenAI)").pack(fill="x", **pad)
+        gpt_card = self._last_card
+
+        tk.Label(gpt_card, text="OpenAI API 키:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT).pack(anchor="w")
+        self._gpt_key_var = tk.StringVar(value=self._cfg.get("chatgpt_api_key", ""))
+        gpt_entry_row = tk.Frame(gpt_card, bg=CARD_BG)
+        gpt_entry_row.pack(fill="x", pady=4)
+        self._gpt_entry = tk.Entry(
+            gpt_entry_row, textvariable=self._gpt_key_var,
+            width=52, font=FONT_BODY, show="*")
+        self._gpt_entry.pack(side="left")
+        self._gpt_show = False
+        self._btn(gpt_entry_row, "👁", TEXT_LIGHT,
+                  self._toggle_gpt_key_vis, w=3).pack(side="left", padx=4)
+
+        gpt_btn_row = tk.Frame(gpt_card, bg=CARD_BG)
+        gpt_btn_row.pack(pady=6)
+        self._btn(gpt_btn_row, "저장", ACCENT,
+                  self._save_gpt_key, w=8).pack(side="left", padx=4)
+        self._btn(gpt_btn_row, "연결 테스트", SUCCESS,
+                  self._test_gpt, w=12).pack(side="left", padx=4)
+        self._btn(gpt_btn_row, "🌐 platform.openai.com", TEXT_LIGHT,
+                  lambda: webbrowser.open("https://platform.openai.com/api-keys"),
+                  w=22).pack(side="left", padx=4)
+        self._gpt_status_var = tk.StringVar(value="")
+        tk.Label(gpt_card, textvariable=self._gpt_status_var,
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack()
+        tk.Label(gpt_card,
+                 text="▶ platform.openai.com → API Keys에서 키를 발급받으세요.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(4, 0))
+        tk.Label(gpt_card,
+                 text="  입력 시 STT 엔진과 AI 요약 엔진에서 'ChatGPT' 선택 가능",
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
 
         # ─ 커스텀 프롬프트 ──────────────────────────────
@@ -545,6 +696,63 @@ class App(tk.Tk):
                       "https://console.cloud.google.com/apis/credentials"),
                   w=14).pack(side="left", padx=4)
 
+        ttk.Separator(drv_card).pack(fill="x", pady=(8, 6))
+        tk.Label(drv_card, text="📁 업로드 폴더 설정",
+                 font=FONT_H2, bg=CARD_BG, fg=TEXT).pack(anchor="w", pady=(0, 4))
+
+        # MP3 폴더 행
+        mp3_row = tk.Frame(drv_card, bg=CARD_BG)
+        mp3_row.pack(fill="x", pady=(0, 4))
+        tk.Label(mp3_row, text="녹음(MP3) 폴더명:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=18, anchor="w").pack(side="left")
+        self._drv_mp3_name_var = tk.StringVar(
+            value=self._cfg.get("drive_mp3_folder_name", "녹음파일"))
+        tk.Entry(mp3_row, textvariable=self._drv_mp3_name_var,
+                 width=18, font=FONT_BODY).pack(side="left", padx=(0, 6))
+        self._drv_mp3_id_var = tk.StringVar(
+            value=self._cfg.get("drive_mp3_folder_id", ""))
+        tk.Label(mp3_row, text="ID:", font=FONT_SMALL,
+                 bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left")
+        tk.Entry(mp3_row, textvariable=self._drv_mp3_id_var,
+                 width=20, font=FONT_SMALL, fg=TEXT_LIGHT).pack(side="left", padx=(2, 6))
+        self._btn(mp3_row, "📁 생성/찾기", ACCENT,
+                  self._ensure_mp3_folder, w=10).pack(side="left")
+
+        # TXT 폴더 행
+        txt_row = tk.Frame(drv_card, bg=CARD_BG)
+        txt_row.pack(fill="x", pady=(0, 4))
+        tk.Label(txt_row, text="요약(TXT) 폴더명:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=18, anchor="w").pack(side="left")
+        self._drv_txt_name_var = tk.StringVar(
+            value=self._cfg.get("drive_txt_folder_name", "회의록(요약)"))
+        tk.Entry(txt_row, textvariable=self._drv_txt_name_var,
+                 width=18, font=FONT_BODY).pack(side="left", padx=(0, 6))
+        self._drv_txt_id_var = tk.StringVar(
+            value=self._cfg.get("drive_txt_folder_id", ""))
+        tk.Label(txt_row, text="ID:", font=FONT_SMALL,
+                 bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left")
+        tk.Entry(txt_row, textvariable=self._drv_txt_id_var,
+                 width=20, font=FONT_SMALL, fg=TEXT_LIGHT).pack(side="left", padx=(2, 6))
+        self._btn(txt_row, "📁 생성/찾기", ACCENT,
+                  self._ensure_txt_folder, w=10).pack(side="left")
+
+        # 폴더 상태 레이블 + 일괄 저장
+        self._drv_folder_status_var = tk.StringVar(value="")
+        tk.Label(drv_card, textvariable=self._drv_folder_status_var,
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
+        folder_btn_row = tk.Frame(drv_card, bg=CARD_BG)
+        folder_btn_row.pack(anchor="w", pady=(4, 2))
+        self._btn(folder_btn_row, "폴더 설정 저장", ACCENT,
+                  self._save_drive_folder_settings, w=14).pack(side="left", padx=4)
+        self._btn(folder_btn_row, "🚀 두 폴더 한번에 생성", SUCCESS,
+                  self._ensure_both_folders, w=18).pack(side="left", padx=4)
+
+        tk.Label(drv_card,
+                 text="  ↑ Google 인증 후 위 버튼으로 내 Drive에 폴더를 자동 생성/연결하세요.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(0, 4))
+
+        ttk.Separator(drv_card).pack(fill="x", pady=(4, 6))
+
         # 자동 업로드 체크
         auto_row = tk.Frame(drv_card, bg=CARD_BG)
         auto_row.pack(anchor="w", pady=(4, 0))
@@ -556,57 +764,80 @@ class App(tk.Tk):
                        activebackground=CARD_BG,
                        command=self._save_drive_auto_setting).pack(side="left")
 
-        # ─ 저장 경로 설정 ────────────────────────────────
-        self._card(inner, "📁 저장 경로 설정").pack(fill="x", **pad)
+        # ─ 저장 경로 설정 (v3 — 3폴더 독립 구조) ─────────
+        self._card(inner, "📁 저장 경로 설정 (v3 — 3폴더 분리)").pack(fill="x", **pad)
         path_card = self._last_card
 
+        # 루트 폴더
         self._rec_dir_var = tk.StringVar(value=str(config.RECORDING_BASE))
         dir_row = tk.Frame(path_card, bg=CARD_BG)
         dir_row.pack(fill="x", pady=4)
-        tk.Label(dir_row, text="녹음 저장 폴더:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=14, anchor="w").pack(side="left")
+        tk.Label(dir_row, text="루트 저장 폴더:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=16, anchor="w").pack(side="left")
         tk.Label(dir_row, textvariable=self._rec_dir_var,
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left", padx=4)
         self._btn(dir_row, "📂 변경", ACCENT,
                   self._change_recording_dir, w=8).pack(side="right")
 
-        # 서브폴더명 편집 — 녹음파일
-        audio_row = tk.Frame(path_card, bg=CARD_BG)
-        audio_row.pack(fill="x", pady=3)
-        tk.Label(audio_row, text="녹음파일 폴더명:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=14, anchor="w").pack(side="left")
-        self._audio_sub_var = tk.StringVar(
-            value=self._cfg.get("audio_subdir", "녹음파일"))
-        tk.Entry(audio_row, textvariable=self._audio_sub_var,
-                 width=18, font=FONT_SMALL).pack(side="left", padx=4)
-        self._btn(audio_row, "저장", ACCENT,
-                  self._save_subdir_settings, w=6).pack(side="left")
-        self._audio_path_lbl = tk.Label(audio_row,
-            text=str(config.AUDIO_SAVE_DIR),
-            font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT)
-        self._audio_path_lbl.pack(side="left", padx=6)
+        ttk.Separator(path_card).pack(fill="x", pady=(4, 8))
 
-        # 서브폴더명 편집 — 회의록(요약)
-        sum_row = tk.Frame(path_card, bg=CARD_BG)
-        sum_row.pack(fill="x", pady=3)
-        tk.Label(sum_row, text="회의록 폴더명:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=14, anchor="w").pack(side="left")
+        # MP3 폴더 설정
+        mp3_row = tk.Frame(path_card, bg=CARD_BG)
+        mp3_row.pack(fill="x", pady=3)
+        tk.Label(mp3_row, text="① MP3 폴더명:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=16, anchor="w").pack(side="left")
+        self._mp3_sub_var = tk.StringVar(
+            value=self._cfg.get("mp3_subdir", self._cfg.get("audio_subdir", "녹음파일")))
+        tk.Entry(mp3_row, textvariable=self._mp3_sub_var,
+                 width=14, font=FONT_SMALL).pack(side="left", padx=4)
+        self._btn(mp3_row, "저장", ACCENT,
+                  self._save_subdir_settings, w=6).pack(side="left")
+        self._mp3_path_lbl = tk.Label(mp3_row,
+            text=str(config.MP3_SAVE_DIR),
+            font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT)
+        self._mp3_path_lbl.pack(side="left", padx=6)
+
+        # STT 폴더 설정
+        stt_sub_row = tk.Frame(path_card, bg=CARD_BG)
+        stt_sub_row.pack(fill="x", pady=3)
+        tk.Label(stt_sub_row, text="② STT변환본 폴더명:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=16, anchor="w").pack(side="left")
+        self._stt_sub_var = tk.StringVar(
+            value=self._cfg.get("stt_subdir", "STT변환본"))
+        tk.Entry(stt_sub_row, textvariable=self._stt_sub_var,
+                 width=14, font=FONT_SMALL).pack(side="left", padx=4)
+        self._btn(stt_sub_row, "저장", ACCENT,
+                  self._save_subdir_settings, w=6).pack(side="left")
+        self._stt_path_lbl = tk.Label(stt_sub_row,
+            text=str(config.STT_SAVE_DIR),
+            font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT)
+        self._stt_path_lbl.pack(side="left", padx=6)
+
+        # 요약 폴더 설정
+        sum_sub_row = tk.Frame(path_card, bg=CARD_BG)
+        sum_sub_row.pack(fill="x", pady=3)
+        tk.Label(sum_sub_row, text="③ 회의록(요약) 폴더명:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=16, anchor="w").pack(side="left")
         self._sum_sub_var = tk.StringVar(
             value=self._cfg.get("summary_subdir", "회의록(요약)"))
-        tk.Entry(sum_row, textvariable=self._sum_sub_var,
-                 width=18, font=FONT_SMALL).pack(side="left", padx=4)
-        self._btn(sum_row, "저장", ACCENT,
+        tk.Entry(sum_sub_row, textvariable=self._sum_sub_var,
+                 width=14, font=FONT_SMALL).pack(side="left", padx=4)
+        self._btn(sum_sub_row, "저장", ACCENT,
                   self._save_subdir_settings, w=6).pack(side="left")
-        self._sum_path_lbl = tk.Label(sum_row,
+        self._sum_path_lbl = tk.Label(sum_sub_row,
             text=str(config.SUMMARY_SAVE_DIR),
             font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT)
         self._sum_path_lbl.pack(side="left", padx=6)
 
+        # 하위 호환 alias
+        self._audio_sub_var = self._mp3_sub_var
+        self._audio_path_lbl = self._mp3_path_lbl
+
         # 앱 데이터 경로 표시
         appdata_row = tk.Frame(path_card, bg=CARD_BG)
-        appdata_row.pack(fill="x", pady=2)
+        appdata_row.pack(fill="x", pady=(6, 2))
         tk.Label(appdata_row, text="앱 데이터:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=14, anchor="w").pack(side="left")
+                 bg=CARD_BG, fg=TEXT, width=16, anchor="w").pack(side="left")
         tk.Label(appdata_row, text=str(config.APP_DATA_DIR),
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left")
 
@@ -838,7 +1069,7 @@ class App(tk.Tk):
 
         def _convert():
             ok2, out = self._recorder.save_as_mp3(
-                result, str(config.AUDIO_SAVE_DIR), default_name)
+                result, str(config.MP3_SAVE_DIR), default_name)
             self.after(0, lambda: self._on_mp3_ready(ok2, out))
 
         threading.Thread(target=_convert, daemon=True).start()
@@ -949,13 +1180,17 @@ class App(tk.Tk):
         tk.Radiobutton(frm1, text="강의 요약 (MD) — 소주제별 논리적 정리, 신앙/업무 강의 자동 적응",
                        variable=sum_mode_var, value="lecture_md",
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
+        tk.Radiobutton(frm1, text="흐름 중심 (MD) ★신규★ — 회의 전개 맥락·인과관계 서술",
+                       variable=sum_mode_var, value="flow",
+                       bg=CARD_BG, font=FONT_BODY, fg=SUCCESS, activebackground=CARD_BG).pack(anchor="w")
 
         # AI 엔진
         frm_ai = tk.LabelFrame(dlg, text="  AI 요약 엔진  ", font=FONT_BODY,
                                bg=CARD_BG, fg=TEXT, padx=12, pady=6)
         frm_ai.pack(fill="x", padx=20, pady=4)
         ai_var = tk.StringVar(value=self._pipeline_ai_engine)
-        has_claude = bool(self._cfg.get("claude_api_key", "").strip())
+        has_claude  = bool(self._cfg.get("claude_api_key", "").strip())
+        has_chatgpt = bool(self._cfg.get("chatgpt_api_key", "").strip())
         tk.Radiobutton(frm_ai, text="Gemini (Google)",
                        variable=ai_var, value="gemini",
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
@@ -964,6 +1199,11 @@ class App(tk.Tk):
                        variable=ai_var, value="claude",
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
                        state="normal" if has_claude else "disabled").pack(anchor="w")
+        tk.Radiobutton(frm_ai,
+                       text="ChatGPT (OpenAI)" + ("" if has_chatgpt else "  ← 설정 탭에서 API 키 입력"),
+                       variable=ai_var, value="chatgpt",
+                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
+                       state="normal" if has_chatgpt else "disabled").pack(anchor="w")
 
         confirmed = {"ok": False}
 
@@ -1004,11 +1244,22 @@ class App(tk.Tk):
         if not self._current_mp3:
             messagebox.showwarning("알림", "녹음하거나 파일을 선택해주세요.")
             return
-        api_key = self._cfg.get("gemini_api_key", "")
-        if not api_key:
-            messagebox.showwarning("알림", "설정 탭에서 Gemini API 키를 입력해주세요.")
-            self._nb.select(2)
-            return
+
+        # STT 엔진 선택 여부에 따라 키 유효성 검사
+        stt_eng = self._pipeline_stt_engine
+        if stt_eng == "clova":
+            if not (self._cfg.get("clova_invoke_url", "").strip() and
+                    self._cfg.get("clova_secret_key", "").strip()):
+                messagebox.showwarning("알림",
+                    "설정 탭에서 CLOVA Speech API 키(Invoke URL / Secret Key)를 먼저 입력해주세요.")
+                self._nb.select(2)
+                return
+        else:
+            api_key = self._cfg.get("gemini_api_key", "")
+            if not api_key:
+                messagebox.showwarning("알림", "설정 탭에서 Gemini API 키를 입력해주세요.")
+                self._nb.select(2)
+                return
         if self._processing:
             messagebox.showwarning("알림", "이미 처리 중입니다. 완료 후 시작해주세요.")
             return
@@ -1023,7 +1274,7 @@ class App(tk.Tk):
         self.update_idletasks()
         x = self.winfo_x() + self.winfo_width() // 2 - 250
         y = self.winfo_y() + self.winfo_height() // 2 - 240
-        dlg.geometry(f"500x490+{x}+{y}")
+        dlg.geometry(f"520x570+{x}+{y}")
         dlg.configure(bg=CARD_BG)
 
         tk.Label(dlg, text="변환 옵션 선택", font=FONT_H2,
@@ -1034,7 +1285,7 @@ class App(tk.Tk):
         frm1 = tk.LabelFrame(dlg, text="  요약 방식  ", font=FONT_BODY,
                               bg=CARD_BG, fg=TEXT, padx=12, pady=6)
         frm1.pack(fill="x", padx=20, pady=4)
-        sum_mode_var = tk.StringVar(value="speaker")
+        sum_mode_var = tk.StringVar(value=self._pipeline_sum_mode)
         tk.Radiobutton(frm1, text="화자 중심 — 참석자별 발언 정리",
                        variable=sum_mode_var, value="speaker",
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
@@ -1050,21 +1301,48 @@ class App(tk.Tk):
         tk.Radiobutton(frm1, text="강의 요약 (MD) — 소주제별 논리적 정리, 신앙/업무 강의 자동 적응",
                        variable=sum_mode_var, value="lecture_md",
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
+        tk.Radiobutton(frm1, text="흐름 중심 (MD) ★신규★ — 회의 전개 맥락·인과관계 서술",
+                       variable=sum_mode_var, value="flow",
+                       bg=CARD_BG, font=FONT_BODY, fg=SUCCESS, activebackground=CARD_BG).pack(anchor="w")
+
+        # ─ STT 엔진 ──────────────────────────────────────
+        has_clova   = (bool(self._cfg.get("clova_invoke_url", "").strip()) and
+                       bool(self._cfg.get("clova_secret_key", "").strip()))
+        has_chatgpt = bool(self._cfg.get("chatgpt_api_key", "").strip())
+        frm_stt = tk.LabelFrame(dlg, text="  STT 변환 엔진  ", font=FONT_BODY,
+                                bg=CARD_BG, fg=TEXT, padx=12, pady=6)
+        frm_stt.pack(fill="x", padx=20, pady=4)
+        stt_var = tk.StringVar(value=self._pipeline_stt_engine)
+        tk.Radiobutton(frm_stt, text="Gemini (Google)",
+                       variable=stt_var, value="gemini",
+                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
+        tk.Radiobutton(frm_stt,
+                       text="CLOVA Speech (NAVER) — 한국어 특화, 타임아웃 없음 ★권장★" +
+                            ("" if has_clova else "  ← 설정 탭에서 API 키 입력"),
+                       variable=stt_var, value="clova",
+                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
+                       state="normal" if has_clova else "disabled").pack(anchor="w")
 
         # ─ AI 엔진 ───────────────────────────────────────
         frm_ai = tk.LabelFrame(dlg, text="  AI 요약 엔진  ", font=FONT_BODY,
                                bg=CARD_BG, fg=TEXT, padx=12, pady=8)
         frm_ai.pack(fill="x", padx=20, pady=4)
-        ai_var = tk.StringVar(value="gemini")
-        has_claude = bool(self._cfg.get("claude_api_key", "").strip())
+        ai_var = tk.StringVar(value=self._pipeline_ai_engine)
+        has_claude  = bool(self._cfg.get("claude_api_key", "").strip())
         tk.Radiobutton(frm_ai, text="Gemini (Google)",
                        variable=ai_var, value="gemini",
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        claude_rb = tk.Radiobutton(frm_ai, text="Claude (Anthropic)" + ("" if has_claude else "  ← 설정 탭에서 API 키 입력"),
+        claude_rb = tk.Radiobutton(frm_ai,
+                       text="Claude (Anthropic)" + ("" if has_claude else "  ← 설정 탭에서 API 키 입력"),
                        variable=ai_var, value="claude",
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
                        state="normal" if has_claude else "disabled")
         claude_rb.pack(anchor="w")
+        tk.Radiobutton(frm_ai,
+                       text="ChatGPT (OpenAI)" + ("" if has_chatgpt else "  ← 설정 탭에서 API 키 입력"),
+                       variable=ai_var, value="chatgpt",
+                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
+                       state="normal" if has_chatgpt else "disabled").pack(anchor="w")
 
         # ─ 화자 이름 변경 ─────────────────────────────────
         frm2 = tk.LabelFrame(dlg, text="  화자 이름 변경  ", font=FONT_BODY,
@@ -1081,6 +1359,7 @@ class App(tk.Tk):
             confirmed["ok"] = True
             self._pipeline_sum_mode   = sum_mode_var.get()
             self._pipeline_ai_engine  = ai_var.get()
+            self._pipeline_stt_engine = stt_var.get()
             self._pipeline_rename_spk = rename_var.get()
             dlg.destroy()
 
@@ -1112,14 +1391,26 @@ class App(tk.Tk):
         self._save_status_var.set("처리 중...")
 
         def run_stt():
-            ok, text = gemini.transcribe(
-                self._current_mp3, api_key,
-                progress_cb=lambda v: self.after(0, lambda: self._set_prog(self._stt_prog, v)),
-                num_speakers=num_spk,
-                speaker_names={},
-                cancel_event=self._cancel_event,
-                status_cb=lambda msg: self.after(0, lambda: self._stt_status_var.set(msg)),
-            )
+            if self._pipeline_stt_engine == "clova":
+                ok, text = clova.transcribe(
+                    self._current_mp3,
+                    invoke_url=self._cfg.get("clova_invoke_url", ""),
+                    secret_key=self._cfg.get("clova_secret_key", ""),
+                    progress_cb=lambda v: self.after(0, lambda: self._set_prog(self._stt_prog, v)),
+                    num_speakers=num_spk,
+                    cancel_event=self._cancel_event,
+                    status_cb=lambda msg: self.after(0, lambda: self._stt_status_var.set(msg)),
+                )
+            else:
+                ok, text = gemini.transcribe(
+                    self._current_mp3,
+                    self._cfg.get("gemini_api_key", ""),
+                    progress_cb=lambda v: self.after(0, lambda: self._set_prog(self._stt_prog, v)),
+                    num_speakers=num_spk,
+                    speaker_names={},
+                    cancel_event=self._cancel_event,
+                    status_cb=lambda msg: self.after(0, lambda: self._stt_status_var.set(msg)),
+                )
             self.after(0, lambda: self._on_pipeline_stt_done(ok, text))
 
         threading.Thread(target=run_stt, daemon=True).start()
@@ -1233,6 +1524,15 @@ class App(tk.Tk):
                     cancel_event=self._cancel_event,
                     custom_instruction=custom_inst,
                 )
+            elif self._pipeline_ai_engine == "chatgpt":
+                gpt_key = self._cfg.get("chatgpt_api_key", "")
+                ok, text = self._summarize_with_chatgpt(
+                    stt_text, gpt_key,
+                    progress_cb=lambda v: self.after(0, lambda: self._set_prog(self._sum_prog, v)),
+                    summary_mode=self._pipeline_sum_mode,
+                    cancel_event=self._cancel_event,
+                    custom_instruction=custom_inst,
+                )
             else:
                 ok, text = gemini.summarize(
                     stt_text, api_key,
@@ -1283,8 +1583,8 @@ class App(tk.Tk):
         self._current_sum_path = None
 
         if stt_text:
-            ok2, path = fm.save_stt_text(stt_text, str(config.SUMMARY_SAVE_DIR),
-                                         save_name + "_녹음")
+            ok2, path = fm.save_stt_text(stt_text, str(config.STT_SAVE_DIR),
+                                         save_name + "_STT")
             if ok2:
                 stt_path = path
                 msgs.append(f"✅ STT 저장: {Path(path).name}")
@@ -1293,7 +1593,7 @@ class App(tk.Tk):
 
         if text:
             ok3, path = fm.save_summary_text(text, str(config.SUMMARY_SAVE_DIR),
-                                             save_name + "_요약")
+                                             save_name + "_회의록")
             if ok3:
                 sum_path = path
                 self._current_sum_path = path
@@ -1310,9 +1610,30 @@ class App(tk.Tk):
             self._save_status_var.set("☁ Google Drive 업로드 중...")
             self.update()
 
+            mp3_fid = self._cfg.get("drive_mp3_folder_id", "")
+            txt_fid = self._cfg.get("drive_txt_folder_id", "")
+
+            if not mp3_fid or not txt_fid:
+                # 폴더 ID 미설정 시 자동 생성 후 업로드
+                mp3_name = self._cfg.get("drive_mp3_folder_name", "녹음파일")
+                txt_name = self._cfg.get("drive_txt_folder_name", "회의록(요약)")
+                r = gdrive.init_drive_folders(mp3_name, txt_name)
+                if r["mp3_ok"]:
+                    mp3_fid = r["mp3_id"]
+                    self._cfg["drive_mp3_folder_id"] = mp3_fid
+                if r["txt_ok"]:
+                    txt_fid = r["txt_id"]
+                    self._cfg["drive_txt_folder_id"] = txt_fid
+                config.save_config(self._cfg)
+
+            _mp3_fid_snap = mp3_fid
+            _txt_fid_snap = txt_fid
+
             def run_drive_upload():
                 results = gdrive.upload_meeting_files(
-                    mp3_path or "", stt_path or "", sum_path or "")
+                    mp3_path or "", stt_path or "", sum_path or "",
+                    mp3_folder_id=_mp3_fid_snap,
+                    txt_folder_id=_txt_fid_snap)
                 self.after(0, lambda: self._on_drive_upload_done(
                     results, mp3_path, stt_path, sum_path,
                     save_name, stt_text, text, msgs))
@@ -1335,23 +1656,19 @@ class App(tk.Tk):
         """Drive 업로드 완료 콜백"""
         drive_mp3_link = drive_stt_link = drive_sum_link = ""
 
-        if results.get("mp3", {}).get("ok"):
-            drive_mp3_link = results["mp3"]["link"]
-            msgs.append(f"☁ MP3 Drive 업로드 완료")
-        elif "mp3" in results:
-            msgs.append(f"❌ MP3 Drive 실패: {results['mp3']['msg'][:40]}")
-
-        if results.get("stt", {}).get("ok"):
-            drive_stt_link = results["stt"]["link"]
-            msgs.append(f"☁ STT Drive 업로드 완료")
-        elif "stt" in results:
-            msgs.append(f"❌ STT Drive 실패: {results['stt']['msg'][:40]}")
-
-        if results.get("summary", {}).get("ok"):
-            drive_sum_link = results["summary"]["link"]
-            msgs.append(f"☁ 요약 Drive 업로드 완료")
-        elif "summary" in results:
-            msgs.append(f"❌ 요약 Drive 실패: {results['summary']['msg'][:40]}")
+        label_map = {"mp3": "MP3", "stt": "STT", "summary": "요약"}
+        for key, lbl in label_map.items():
+            r = results.get(key, {})
+            if r.get("ok"):
+                if key == "mp3":
+                    drive_mp3_link = r["link"]
+                elif key == "stt":
+                    drive_stt_link = r["link"]
+                else:
+                    drive_sum_link = r["link"]
+                msgs.append(f"☁ {lbl} Drive 업로드 완료")
+            elif r.get("msg") and r["msg"] != "파일 없음":
+                msgs.append(f"❌ {lbl} Drive 실패: {r['msg']}")
 
         self._finalize_save(mp3_path, stt_path, sum_path, save_name,
                             stt_text, text, msgs,
@@ -1469,6 +1786,15 @@ class App(tk.Tk):
                     cancel_event=self._cancel_event,
                     custom_instruction=custom_text,
                 )
+            elif self._pipeline_ai_engine == "chatgpt":
+                gpt_key = self._cfg.get("chatgpt_api_key", "")
+                ok, text = self._summarize_with_chatgpt(
+                    self._stt_text, gpt_key,
+                    progress_cb=lambda v: self.after(0, lambda: self._set_prog(self._sum_prog, v)),
+                    summary_mode=self._pipeline_sum_mode,
+                    cancel_event=self._cancel_event,
+                    custom_instruction=custom_text,
+                )
             else:
                 ok, text = gemini.summarize(
                     self._stt_text, api_key,
@@ -1517,13 +1843,13 @@ class App(tk.Tk):
         self._current_sum_path = None
 
         ok3, path = fm.save_summary_text(text, str(config.SUMMARY_SAVE_DIR),
-                                         save_name + "_요약")
+                                         save_name + "_재요약")
         if ok3:
             sum_path = path
             self._current_sum_path = path
-            msgs.append(f"✅ 요약 저장: {Path(path).name}")
+            msgs.append(f"✅ 재요약 저장: {Path(path).name}")
         else:
-            msgs.append(f"❌ 요약 저장 실패: {path}")
+            msgs.append(f"❌ 재요약 저장 실패: {path}")
 
         # ── Google Drive 업로드 ──────────────────────────
         drive_sum_link = ""
@@ -1599,6 +1925,54 @@ class App(tk.Tk):
 
         self._start_metrics_extraction(text)
 
+    def _summarize_with_chatgpt(self, stt_text: str, api_key: str,
+                                 progress_cb=None, summary_mode: str = "speaker",
+                                 cancel_event=None, custom_instruction: str = "") -> tuple:
+        """ChatGPT (OpenAI) 요약 — claude_service 패턴 준용"""
+        if not api_key:
+            return False, "ChatGPT API 키가 없습니다. 설정 탭에서 입력해주세요."
+        if not stt_text.strip():
+            return False, "변환된 텍스트가 비어 있습니다."
+        try:
+            import openai
+        except ImportError:
+            return False, "openai 패키지가 설치되지 않았습니다.\n'pip install openai' 실행 후 재시도해주세요."
+
+        # gemini_service 템플릿 재사용
+        from claude_service import _get_template
+        template, trim_fn = _get_template(summary_mode)
+        try:
+            if progress_cb: progress_cb(10)
+            if cancel_event and cancel_event.is_set():
+                return False, "사용자에 의해 중단되었습니다."
+
+            from datetime import datetime as _dt
+            prompt = template.format(
+                text=stt_text[:300000],
+                dt=_dt.now().strftime("%Y년 %m월 %d일 %H:%M"),
+            )
+            if custom_instruction and custom_instruction.strip():
+                prompt += f"\n\n[추가 지시사항]\n{custom_instruction.strip()}"
+
+            if progress_cb: progress_cb(30)
+
+            client = openai.OpenAI(api_key=api_key)
+            resp = client.chat.completions.create(
+                model=config.CHATGPT_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=8192,
+                temperature=0.3,
+            )
+            if cancel_event and cancel_event.is_set():
+                return False, "사용자에 의해 중단되었습니다."
+            if progress_cb: progress_cb(100)
+            result = resp.choices[0].message.content or ""
+            if not result:
+                return False, "ChatGPT 응답이 비어 있습니다."
+            return True, trim_fn(result)
+        except Exception as e:
+            return False, f"ChatGPT 오류: {str(e)[:300]}"
+
     def _cancel_process(self):
         """■ 중단 버튼"""
         self._cancel_event.set()
@@ -1625,27 +1999,136 @@ class App(tk.Tk):
             ))
 
     def _on_list_select(self, event):
+        """트리뷰 선택 시 요약/STT 분리 뷰 자동 표시"""
         sel = self._tree.selection()
         if not sel:
             return
         mid  = int(sel[0])
         data = database.get_meeting(mid)
-        self._detail_box.delete("1.0", "end")
-        self._detail_box.insert("1.0",
-            f"=== 요약 ===\n{data.get('summary_text','(없음)')}\n\n"
-            f"=== STT 원문 ===\n{data.get('stt_text','(없음)')}")
+        self._selected_meeting_data = data
 
+        # 요약 탭
+        self._sum_detail_box.delete("1.0", "end")
+        self._sum_detail_box.insert("1.0", data.get("summary_text", "(요약 없음)"))
+
+        # STT 원문 탭
+        self._stt_detail_box.delete("1.0", "end")
+        self._stt_detail_box.insert("1.0", data.get("stt_text", "(STT 원문 없음)"))
+
+    def _view_meeting_full(self):
+        """📄 전체 보기 — 별도 창에서 요약 + STT 전체 내용 표시"""
+        sel = self._tree.selection()
+        if not sel:
+            messagebox.showwarning("알림", "항목을 선택해주세요.")
+            return
+        mid  = int(sel[0])
+        data = database.get_meeting(mid)
+
+        dlg = tk.Toplevel(self)
+        dlg.title(f"📄 전체 보기 — {data.get('file_name','')}")
+        dlg.resizable(True, True)
+
+        self.update_idletasks()
+        w, h = 900, 700
+        x = self.winfo_x() + self.winfo_width() // 2 - w // 2
+        y = self.winfo_y() + self.winfo_height() // 2 - h // 2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+        dlg.configure(bg=CARD_BG)
+
+        nb = ttk.Notebook(dlg)
+        nb.pack(fill="both", expand=True, padx=10, pady=8)
+
+        # 요약 탭
+        sum_frm = tk.Frame(nb, bg=CARD_BG)
+        nb.add(sum_frm, text="  📋 회의록 요약  ")
+        sum_box = scrolledtext.ScrolledText(sum_frm, font=FONT_BODY, wrap="word", bg="#FAFAFA")
+        sum_box.pack(fill="both", expand=True)
+        sum_box.insert("1.0", data.get("summary_text", "(없음)"))
+
+        # STT 탭
+        stt_frm = tk.Frame(nb, bg=CARD_BG)
+        nb.add(stt_frm, text="  📝 STT 원문  ")
+        stt_box = scrolledtext.ScrolledText(stt_frm, font=FONT_BODY, wrap="word", bg="#FAFAFA")
+        stt_box.pack(fill="both", expand=True)
+        stt_box.insert("1.0", data.get("stt_text", "(없음)"))
+
+        # 정보 탭
+        info_frm = tk.Frame(nb, bg=CARD_BG)
+        nb.add(info_frm, text="  ℹ 정보  ")
+        info_text = (
+            f"파일명: {data.get('file_name','')}\n"
+            f"생성일시: {data.get('created_at','')}\n"
+            f"MP3 경로: {data.get('mp3_local_path','—')}\n"
+            f"STT 파일: {data.get('stt_local_path','—')}\n"
+            f"요약 파일: {data.get('summary_local_path','—')}\n"
+            f"Drive MP3: {data.get('drive_mp3_link','—')}\n"
+            f"Drive STT: {data.get('drive_stt_link','—')}\n"
+            f"Drive 요약: {data.get('drive_summary_link','—')}\n"
+            f"파일크기: {data.get('file_size_mb',0):.2f} MB\n"
+        )
+        info_box = scrolledtext.ScrolledText(info_frm, font=FONT_BODY, wrap="word", bg="#FAFAFA", height=12)
+        info_box.pack(fill="both", expand=True)
+        info_box.insert("1.0", info_text)
+        info_box.config(state="disabled")
+
+        btn_row = tk.Frame(dlg, bg=CARD_BG)
+        btn_row.pack(pady=8)
+        self._btn(btn_row, "닫기", TEXT_LIGHT, dlg.destroy, w=12).pack()
+
+    # ── 이전 버전 하위 호환 ─────────────────────────────
     def _view_meeting(self):
-        self._on_list_select(None)
+        self._view_meeting_full()
+
+    def _print_meeting(self):
+        """🖨 출력·인쇄 — 요약 파일을 기본 앱으로 인쇄"""
+        sel = self._tree.selection()
+        if not sel:
+            messagebox.showwarning("알림", "인쇄할 항목을 선택해주세요.")
+            return
+        mid  = int(sel[0])
+        data = database.get_meeting(mid)
+        sum_path = data.get("summary_local_path", "")
+
+        if not sum_path or not Path(sum_path).exists():
+            # 파일 없으면 임시 파일로 생성
+            summary_text = data.get("summary_text", "")
+            if not summary_text:
+                messagebox.showwarning("알림", "요약 내용이 없습니다.")
+                return
+            tmp_path = Path(config.APP_DATA_DIR) / f"_tmp_print_{data.get('file_name','temp')}.md"
+            tmp_path.write_text(summary_text, encoding="utf-8")
+            sum_path = str(tmp_path)
+
+        ok, msg = fm.print_file(sum_path)
+        if not ok:
+            messagebox.showerror("인쇄 오류", msg)
+
+    def _share_meeting(self):
+        """📤 공유 — 파일탐색기에서 요약 파일 위치 열기"""
+        sel = self._tree.selection()
+        if not sel:
+            messagebox.showwarning("알림", "공유할 항목을 선택해주세요.")
+            return
+        mid  = int(sel[0])
+        data = database.get_meeting(mid)
+        sum_path = data.get("summary_local_path", "")
+
+        if sum_path and Path(sum_path).exists():
+            fm.open_file_in_explorer(sum_path)
+        else:
+            # 파일탐색기로 요약 폴더 열기
+            fm.open_file_in_explorer(str(config.SUMMARY_SAVE_DIR))
 
     def _delete_meeting(self):
         sel = self._tree.selection()
         if not sel:
             messagebox.showwarning("알림", "삭제할 항목을 선택해주세요.")
             return
-        if messagebox.askyesno("확인", "선택한 항목을 삭제할까요?"):
+        if messagebox.askyesno("확인", "선택한 항목을 삭제할까요?\n(DB에서만 삭제되며 로컬 파일은 유지됩니다)"):
             database.delete_meeting(int(sel[0]))
             self._refresh_list()
+            self._sum_detail_box.delete("1.0", "end")
+            self._stt_detail_box.delete("1.0", "end")
 
     # ════════════════════════════════════════════════════
     # 설정 기능
@@ -1805,6 +2288,38 @@ class App(tk.Tk):
         self._btn(btn_row, "닫기", TEXT_LIGHT,
                   dlg.destroy, w=8).pack(side="left", padx=6)
 
+    def _toggle_gpt_key_vis(self):
+        self._gpt_show = not self._gpt_show
+        self._gpt_entry.config(show="" if self._gpt_show else "*")
+
+    def _save_gpt_key(self):
+        self._cfg["chatgpt_api_key"] = self._gpt_key_var.get().strip()
+        config.save_config(self._cfg)
+        self._gpt_status_var.set("✅ API 키 저장 완료")
+
+    def _test_gpt(self):
+        key = self._gpt_key_var.get().strip()
+        if not key:
+            messagebox.showwarning("알림", "OpenAI API 키를 입력해주세요.")
+            return
+        self._gpt_status_var.set("연결 테스트 중...")
+        self.update_idletasks()
+
+        def _run():
+            try:
+                import openai
+                client = openai.OpenAI(api_key=key)
+                models = list(client.models.list())
+                msg = f"연결 성공! (gpt-4o 포함 {len(models)}개 모델)"
+                self.after(0, lambda: self._gpt_status_var.set(f"✅ {msg}"))
+            except ImportError:
+                self.after(0, lambda: self._gpt_status_var.set(
+                    "❌ openai 패키지 미설치: pip install openai"))
+            except Exception as e:
+                self.after(0, lambda: self._gpt_status_var.set(f"❌ {str(e)[:80]}"))
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def _toggle_gem_key_vis(self):
         self._gem_show = not self._gem_show
         self._gem_entry.config(show="" if self._gem_show else "*")
@@ -1892,6 +2407,131 @@ class App(tk.Tk):
         config.save_config(self._cfg)
         self._refresh_prompt_templates()
 
+    # ── CLOVA Speech 설정 메서드 ─────────────────────────
+
+    def _toggle_clova_id_vis(self):
+        self._clova_id_show = not self._clova_id_show
+        self._clova_id_entry.config(show="" if self._clova_id_show else "*")
+
+    def _toggle_clova_secret_vis(self):
+        self._clova_secret_show = not self._clova_secret_show
+        self._clova_secret_entry.config(show="" if self._clova_secret_show else "*")
+
+    def _save_clova_keys(self):
+        self._cfg["clova_invoke_url"] = self._clova_id_var.get().strip()
+        self._cfg["clova_secret_key"] = self._clova_secret_var.get().strip()
+        config.save_config(self._cfg)
+        self._clova_status_var.set("✅ CLOVA API 키 저장 완료")
+        # 파이프라인 STT 엔진도 동기화
+        self._pipeline_stt_engine = self._cfg.get("stt_engine", "gemini")
+
+    def _save_stt_engine(self):
+        eng = self._stt_engine_var.get()
+        self._cfg["stt_engine"] = eng
+        self._pipeline_stt_engine = eng
+        config.save_config(self._cfg)
+
+    def _test_clova(self):
+        invoke_url = self._clova_id_var.get().strip()
+        secret_key = self._clova_secret_var.get().strip()
+        if not invoke_url or not secret_key:
+            messagebox.showwarning("알림", "Invoke URL과 Secret Key를 모두 입력해주세요.")
+            return
+        self._clova_status_var.set("연결 테스트 중...")
+        self.update()
+        ok, msg = clova.test_connection(invoke_url, secret_key)
+        self._clova_status_var.set(("✅ " if ok else "❌ ") + msg)
+
+    # ── Gemini 설정 메서드 ───────────────────────────────
+
+    # ── Google Drive 폴더 설정 메서드 ──────────────────────
+
+    def _save_drive_folder_settings(self):
+        self._cfg["drive_mp3_folder_name"] = self._drv_mp3_name_var.get().strip() or "녹음파일"
+        self._cfg["drive_txt_folder_name"] = self._drv_txt_name_var.get().strip() or "회의록(요약)"
+        # URL 또는 ID 모두 허용 — parse_folder_id로 자동 추출
+        mp3_raw = self._drv_mp3_id_var.get().strip()
+        txt_raw = self._drv_txt_id_var.get().strip()
+        mp3_id  = gdrive.parse_folder_id(mp3_raw)
+        txt_id  = gdrive.parse_folder_id(txt_raw)
+        self._cfg["drive_mp3_folder_id"] = mp3_id
+        self._cfg["drive_txt_folder_id"] = txt_id
+        if mp3_id != mp3_raw:
+            self._drv_mp3_id_var.set(mp3_id)
+        if txt_id != txt_raw:
+            self._drv_txt_id_var.set(txt_id)
+        config.save_config(self._cfg)
+        self._drv_folder_status_var.set("✅ 폴더 ID 저장 완료")
+
+    def _ensure_mp3_folder(self):
+        name = self._drv_mp3_name_var.get().strip() or "녹음파일"
+        self._drv_folder_status_var.set(f"Drive에서 '{name}' 폴더 찾는 중...")
+        self.update()
+
+        def _run():
+            ok, fid, msg = gdrive.ensure_folder(name)
+            def _done():
+                if ok:
+                    self._drv_mp3_id_var.set(fid)
+                    self._cfg["drive_mp3_folder_id"]   = fid
+                    self._cfg["drive_mp3_folder_name"] = name
+                    config.save_config(self._cfg)
+                    self._drv_folder_status_var.set(f"✅ MP3 폴더: {msg}")
+                else:
+                    self._drv_folder_status_var.set(f"❌ MP3 폴더 실패: {msg}")
+            self.after(0, _done)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _ensure_txt_folder(self):
+        name = self._drv_txt_name_var.get().strip() or "회의록(요약)"
+        self._drv_folder_status_var.set(f"Drive에서 '{name}' 폴더 찾는 중...")
+        self.update()
+
+        def _run():
+            ok, fid, msg = gdrive.ensure_folder(name)
+            def _done():
+                if ok:
+                    self._drv_txt_id_var.set(fid)
+                    self._cfg["drive_txt_folder_id"]   = fid
+                    self._cfg["drive_txt_folder_name"] = name
+                    config.save_config(self._cfg)
+                    self._drv_folder_status_var.set(f"✅ TXT 폴더: {msg}")
+                else:
+                    self._drv_folder_status_var.set(f"❌ TXT 폴더 실패: {msg}")
+            self.after(0, _done)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _ensure_both_folders(self):
+        mp3_name = self._drv_mp3_name_var.get().strip() or "녹음파일"
+        txt_name = self._drv_txt_name_var.get().strip() or "회의록(요약)"
+        self._drv_folder_status_var.set("Drive에서 두 폴더 생성/찾는 중...")
+        self.update()
+
+        def _run():
+            result = gdrive.init_drive_folders(mp3_name, txt_name)
+            def _done():
+                msgs = []
+                if result["mp3_ok"]:
+                    self._drv_mp3_id_var.set(result["mp3_id"])
+                    self._cfg["drive_mp3_folder_id"]   = result["mp3_id"]
+                    self._cfg["drive_mp3_folder_name"] = mp3_name
+                    msgs.append(f"MP3: {result['mp3_msg']}")
+                else:
+                    msgs.append(f"MP3 실패: {result['mp3_msg']}")
+                if result["txt_ok"]:
+                    self._drv_txt_id_var.set(result["txt_id"])
+                    self._cfg["drive_txt_folder_id"]   = result["txt_id"]
+                    self._cfg["drive_txt_folder_name"] = txt_name
+                    msgs.append(f"TXT: {result['txt_msg']}")
+                else:
+                    msgs.append(f"TXT 실패: {result['txt_msg']}")
+                config.save_config(self._cfg)
+                self._drv_folder_status_var.set(" | ".join(msgs))
+            self.after(0, _done)
+        threading.Thread(target=_run, daemon=True).start()
+
+    # ── Gemini 설정 메서드 ───────────────────────────────
+
     def _save_gem_key(self):
         self._cfg["gemini_api_key"] = self._gem_key_var.get().strip()
         config.save_config(self._cfg)
@@ -1908,39 +2548,52 @@ class App(tk.Tk):
         self._gem_status_var.set(("✅ " if ok else "❌ ") + msg)
 
     def _change_recording_dir(self):
-        """녹음 저장 폴더 변경"""
+        """루트 저장 폴더 변경 (v3 — 3폴더 모두 하위로 이동)"""
         d = filedialog.askdirectory(
-            title="녹음 저장 폴더 선택",
+            title="루트 저장 폴더 선택",
             initialdir=self._cfg.get("recording_dir", str(Path.home() / "Documents")))
         if d:
             self._cfg["recording_dir"] = d
             config.save_config(self._cfg)
             config.reload_paths()
             self._rec_dir_var.set(d)
-            self._audio_path_lbl.config(text=str(config.AUDIO_SAVE_DIR))
-            self._sum_path_lbl.config(text=str(config.SUMMARY_SAVE_DIR))
+            if hasattr(self, "_mp3_path_lbl"):
+                self._mp3_path_lbl.config(text=str(config.MP3_SAVE_DIR))
+            if hasattr(self, "_stt_path_lbl"):
+                self._stt_path_lbl.config(text=str(config.STT_SAVE_DIR))
+            if hasattr(self, "_sum_path_lbl"):
+                self._sum_path_lbl.config(text=str(config.SUMMARY_SAVE_DIR))
             messagebox.showinfo("저장 경로 변경",
-                                f"✅ 저장 경로가 변경되었습니다.\n\n"
-                                f"녹음파일: {config.AUDIO_SAVE_DIR}\n"
-                                f"회의록(요약): {config.SUMMARY_SAVE_DIR}")
+                                f"✅ 루트 경로가 변경되었습니다.\n\n"
+                                f"① MP3: {config.MP3_SAVE_DIR}\n"
+                                f"② STT: {config.STT_SAVE_DIR}\n"
+                                f"③ 회의록: {config.SUMMARY_SAVE_DIR}")
 
     def _save_subdir_settings(self):
-        """녹음파일/회의록(요약) 서브폴더명 저장"""
-        audio_sub   = self._audio_sub_var.get().strip()
+        """MP3/STT/회의록 서브폴더명 저장 (v3 — 3폴더)"""
+        mp3_sub     = self._mp3_sub_var.get().strip()
+        stt_sub     = self._stt_sub_var.get().strip() if hasattr(self, "_stt_sub_var") else "STT변환본"
         summary_sub = self._sum_sub_var.get().strip()
-        if not audio_sub or not summary_sub:
+        if not mp3_sub or not stt_sub or not summary_sub:
             messagebox.showwarning("알림", "폴더명을 비워둘 수 없습니다.")
             return
-        self._cfg["audio_subdir"]   = audio_sub
+        self._cfg["mp3_subdir"]     = mp3_sub
+        self._cfg["audio_subdir"]   = mp3_sub   # 하위 호환
+        self._cfg["stt_subdir"]     = stt_sub
         self._cfg["summary_subdir"] = summary_sub
         config.save_config(self._cfg)
         config.reload_paths()
-        self._audio_path_lbl.config(text=str(config.AUDIO_SAVE_DIR))
-        self._sum_path_lbl.config(text=str(config.SUMMARY_SAVE_DIR))
+        if hasattr(self, "_mp3_path_lbl"):
+            self._mp3_path_lbl.config(text=str(config.MP3_SAVE_DIR))
+        if hasattr(self, "_stt_path_lbl"):
+            self._stt_path_lbl.config(text=str(config.STT_SAVE_DIR))
+        if hasattr(self, "_sum_path_lbl"):
+            self._sum_path_lbl.config(text=str(config.SUMMARY_SAVE_DIR))
         messagebox.showinfo("저장 완료",
                             f"✅ 폴더명이 변경되었습니다.\n\n"
-                            f"녹음파일: {config.AUDIO_SAVE_DIR}\n"
-                            f"회의록(요약): {config.SUMMARY_SAVE_DIR}")
+                            f"① MP3: {config.MP3_SAVE_DIR}\n"
+                            f"② STT: {config.STT_SAVE_DIR}\n"
+                            f"③ 회의록: {config.SUMMARY_SAVE_DIR}")
 
     # ════════════════════════════════════════════════════
     # 유틸

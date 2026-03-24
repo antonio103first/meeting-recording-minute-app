@@ -16,6 +16,7 @@ def _get_template(summary_mode: str):
         _SUMMARY_FORMAL_MD_TEMPLATE,
         _SUMMARY_FORMAL_TEXT_TEMPLATE,
         _SUMMARY_LECTURE_MD_TEMPLATE,
+        _SUMMARY_FLOW_TEMPLATE,
         _trim_summary,
     )
     if summary_mode == "topic":
@@ -26,6 +27,8 @@ def _get_template(summary_mode: str):
         return _SUMMARY_FORMAL_TEXT_TEMPLATE, _trim_summary
     elif summary_mode == "lecture_md":
         return _SUMMARY_LECTURE_MD_TEMPLATE, _trim_summary
+    elif summary_mode == "flow":
+        return _SUMMARY_FLOW_TEMPLATE, _trim_summary
     else:
         return _SUMMARY_SPEAKER_TEMPLATE, _trim_summary
 
