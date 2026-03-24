@@ -25,9 +25,17 @@ def init_database():
                 drive_mp3_link      TEXT,
                 drive_stt_link      TEXT,
                 drive_summary_link  TEXT,
-                file_size_mb        REAL
+                file_size_mb        REAL,
+                summary_mode        TEXT,
+                speaker_map         TEXT
             )
         """)
+        # 기존 DB 마이그레이션: 컬럼 없으면 추가
+        for col, coltype in [("summary_mode", "TEXT"), ("speaker_map", "TEXT")]:
+            try:
+                con.execute(f"ALTER TABLE meetings ADD COLUMN {col} {coltype}")
+            except Exception:
+                pass  # 이미 존재하면 무시
         con.commit()
 
 
@@ -80,4 +88,25 @@ def update_meeting_summary(mid: int, stt_text=None,
 def delete_meeting(mid: int):
     with _conn() as con:
         con.execute("DELETE FROM meetings WHERE id=?", (mid,))
+        con.commit()
+
+
+def update_meeting_speaker_map(mid: int, speaker_map: dict):
+    """화자이름 매핑 JSON 저장"""
+    import json
+    with _conn() as con:
+        con.execute(
+            "UPDATE meetings SET speaker_map=? WHERE id=?",
+            (json.dumps(speaker_map, ensure_ascii=False), mid)
+        )
+        con.commit()
+
+
+def update_meeting_summary_mode(mid: int, summary_mode: str):
+    """요약 방식명 저장"""
+    with _conn() as con:
+        con.execute(
+            "UPDATE meetings SET summary_mode=? WHERE id=?",
+            (summary_mode, mid)
+        )
         con.commit()

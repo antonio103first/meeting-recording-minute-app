@@ -332,6 +332,60 @@ class App(tk.Tk):
             bg="#FAFAFA", relief="solid", bd=1, state="disabled")
         self._metrics_box.pack(fill="x")
 
+        # ════ 영역 B: 회의록 추가 변환 (STT 파일 → 회의록) ════
+        ttk.Separator(inner).pack(fill="x", padx=20, pady=10)
+        self._card(inner, "📝 회의록 추가 변환 (STT 파일 선택 → 회의록 생성)").pack(fill="x", padx=20, pady=5)
+        b_card = self._last_card
+
+        tk.Label(b_card,
+                 text="저장된 STT 파일(.md)을 불러와 새로운 요약 방식으로 추가 변환합니다.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(0, 6))
+
+        # STT 파일 선택 행
+        b_file_row = tk.Frame(b_card, bg=CARD_BG)
+        b_file_row.pack(fill="x", pady=4)
+        tk.Label(b_file_row, text="STT 파일:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=10, anchor="w").pack(side="left")
+        self._b_stt_file_var = tk.StringVar(value="(파일 미선택)")
+        self._b_stt_path = None
+        tk.Label(b_file_row, textvariable=self._b_stt_file_var,
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left", padx=4)
+        self._btn(b_file_row, "📂 STT 파일 선택", ACCENT,
+                  self._b_pick_stt_file, w=14).pack(side="right")
+
+        # 커스텀 프롬프트 (1회성)
+        cp_row = tk.Frame(b_card, bg=CARD_BG)
+        cp_row.pack(fill="x", pady=4)
+        tk.Label(cp_row, text="추가 지시:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=10, anchor="w").pack(side="left")
+        self._b_custom_prompt = tk.Entry(cp_row, font=FONT_BODY, width=50)
+        self._b_custom_prompt.pack(side="left", padx=4)
+        tk.Label(cp_row,
+                 text="(이번 변환에만 적용, 저장 안됨)",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left")
+
+        # 진행률
+        self._b_status_var = tk.StringVar(value="")
+        tk.Label(b_card, textvariable=self._b_status_var,
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
+
+        # 버튼 행
+        b_btn_row = tk.Frame(b_card, bg=CARD_BG)
+        b_btn_row.pack(pady=6)
+        self._btn_b_convert = self._btn(b_btn_row, "📝 회의록 변환", ACCENT,
+                                        self._b_convert_meeting, w=14)
+        self._btn_b_convert.pack(side="left", padx=4)
+        self._btn_b_stop = self._btn(b_btn_row, "■ 중지", DANGER,
+                                     self._b_stop_convert, w=8)
+        self._btn_b_stop.pack(side="left", padx=4)
+        self._btn_b_stop.config(state="disabled")
+
+        # 요약 결과 표시
+        self._b_result_box = tk.Text(
+            b_card, height=8, font=FONT_BODY, wrap="word",
+            bg="#FAFAFA", relief="solid", bd=1, state="disabled")
+        self._b_result_box.pack(fill="x", pady=6)
+
     # ════════════════════════════════════════════════════
     # 탭 2 : 회의 목록 (v3 — 분리뷰 + 4개 액션 버튼)
     # ════════════════════════════════════════════════════
@@ -442,6 +496,31 @@ class App(tk.Tk):
 
         pad = {"padx": 20, "pady": 8}
 
+        # ─ ① 기본 요약 방식 ─────────────────────────────────
+        self._card(inner, "🗂 기본 요약 방식").pack(fill="x", **pad)
+        sm_card = self._last_card
+
+        tk.Label(sm_card,
+                 text="변환 시 요약 방식을 지정합니다. 영역 A 자동 변환 시 이 설정이 적용됩니다.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(0, 6))
+
+        self._default_sum_mode_var = tk.StringVar(
+            value=self._cfg.get("summary_mode", "speaker"))
+        for label, val in [
+            ("화자 중심 — 발화자별 발언 구조화", "speaker"),
+            ("주제 중심 — 논의 주제별 구조화", "topic"),
+            ("회의양식 — K-Run Ventures 공식 회의록 포맷", "formal_md"),
+            ("강의 요약 — 학습/세미나 특화", "lecture_md"),
+            ("흐름 중심 ★신규★ — 회의 전개 맥락·인과관계 서술", "flow"),
+        ]:
+            fg = SUCCESS if val == "flow" else TEXT
+            tk.Radiobutton(
+                sm_card, text=label,
+                variable=self._default_sum_mode_var, value=val,
+                bg=CARD_BG, font=FONT_BODY, fg=fg, activebackground=CARD_BG,
+                command=self._save_default_sum_mode
+            ).pack(anchor="w")
+
         # ─ Gemini API ───────────────────────────────────
         self._card(inner, "🤖 Gemini API 설정").pack(fill="x", **pad)
         gem_card = self._last_card
@@ -522,8 +601,10 @@ class App(tk.Tk):
                        variable=self._stt_engine_var, value="clova",
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
                        command=self._save_stt_engine).pack(side="left", padx=4)
-        # ChatGPT STT는 설정 탭 ChatGPT 섹션에서 연동 (Whisper API)
-        # 변환 시작 다이얼로그에서 매번 선택 가능
+        tk.Radiobutton(stt_eng_row, text="ChatGPT (Whisper)",
+                       variable=self._stt_engine_var, value="chatgpt",
+                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
+                       command=self._save_stt_engine).pack(side="left", padx=4)
 
         clova_btn_row = tk.Frame(clova_card, bg=CARD_BG)
         clova_btn_row.pack(pady=4)
@@ -605,6 +686,27 @@ class App(tk.Tk):
         self._btn(gpt_btn_row, "🌐 platform.openai.com", TEXT_LIGHT,
                   lambda: webbrowser.open("https://platform.openai.com/api-keys"),
                   w=22).pack(side="left", padx=4)
+
+        # 회의록 요약 API 선택
+        ttk.Separator(gpt_card).pack(fill="x", pady=(8, 4))
+        sum_api_row = tk.Frame(gpt_card, bg=CARD_BG)
+        sum_api_row.pack(fill="x", pady=4)
+        tk.Label(sum_api_row, text="회의록 요약 API:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT).pack(side="left")
+        self._summary_engine_var = tk.StringVar(
+            value=self._cfg.get("summary_engine", "gemini"))
+        for label, val in [("Gemini", "gemini"), ("Claude", "claude"), ("ChatGPT", "chatgpt")]:
+            has_key = bool(self._cfg.get({
+                "gemini": "gemini_api_key",
+                "claude": "claude_api_key",
+                "chatgpt": "chatgpt_api_key"
+            }[val], "").strip())
+            state = "normal"
+            tk.Radiobutton(sum_api_row, text=label,
+                           variable=self._summary_engine_var, value=val,
+                           bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
+                           command=self._save_summary_engine).pack(side="left", padx=(10, 2))
+
         self._gpt_status_var = tk.StringVar(value="")
         tk.Label(gpt_card, textvariable=self._gpt_status_var,
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack()
@@ -702,7 +804,7 @@ class App(tk.Tk):
                   w=14).pack(side="left", padx=4)
 
         ttk.Separator(drv_card).pack(fill="x", pady=(8, 6))
-        tk.Label(drv_card, text="📁 업로드 폴더 설정",
+        tk.Label(drv_card, text="📁 구글동기화 폴더 설정",
                  font=FONT_H2, bg=CARD_BG, fg=TEXT).pack(anchor="w", pady=(0, 4))
 
         # MP3 폴더 행
@@ -770,7 +872,7 @@ class App(tk.Tk):
                        command=self._save_drive_auto_setting).pack(side="left")
 
         # ─ 저장 경로 설정 (v3 — 3폴더 독립 구조) ─────────
-        self._card(inner, "📁 저장 경로 설정 (v3 — 3폴더 분리)").pack(fill="x", **pad)
+        self._card(inner, "📁 PC 저장 폴더 설정").pack(fill="x", **pad)
         path_card = self._last_card
 
         # 루트 폴더
@@ -1214,11 +1316,8 @@ class App(tk.Tk):
         tk.Radiobutton(frm1, text="주제 중심 — 안건별 논의 정리",
                        variable=sum_mode_var, value="topic",
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm1, text="업무미팅 회의록 (MD) — 비즈니스 컨설턴트 스타일, 마크다운",
+        tk.Radiobutton(frm1, text="회의양식 — K-Run Ventures 공식 회의록 포맷",
                        variable=sum_mode_var, value="formal_md",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm1, text="업무미팅 회의록 (텍스트) — 비즈니스 컨설턴트 스타일, 일반 텍스트",
-                       variable=sum_mode_var, value="formal_text",
                        bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
         tk.Radiobutton(frm1, text="강의 요약 (MD) — 소주제별 논리적 정리, 신앙/업무 강의 자동 적응",
                        variable=sum_mode_var, value="lecture_md",
@@ -1307,117 +1406,29 @@ class App(tk.Tk):
             messagebox.showwarning("알림", "이미 처리 중입니다. 완료 후 시작해주세요.")
             return
 
-        # ① 팝업: 요약 방식 선택 + 화자 이름 변경 여부
-        dlg = tk.Toplevel(self)
-        dlg.title("변환 옵션 선택")
-        dlg.resizable(False, False)
-        dlg.grab_set()
-        dlg.focus_set()
+        # ① 설정 탭의 기본값을 자동 적용 (팝업 없음 — F-06 영역 A 정책)
+        self._pipeline_sum_mode   = self._cfg.get("summary_mode", "speaker")
+        self._pipeline_ai_engine  = self._cfg.get("summary_engine", "gemini")
+        self._pipeline_stt_engine = self._cfg.get("stt_engine", "clova")
+        self._pipeline_rename_spk = False
 
-        self.update_idletasks()
-        x = self.winfo_x() + self.winfo_width() // 2 - 250
-        y = self.winfo_y() + self.winfo_height() // 2 - 240
-        dlg.geometry(f"520x570+{x}+{y}")
-        dlg.configure(bg=CARD_BG)
-
-        tk.Label(dlg, text="변환 옵션 선택", font=FONT_H2,
-                 bg=CARD_BG, fg=TEXT).pack(pady=(14, 2))
-        ttk.Separator(dlg).pack(fill="x", padx=20, pady=4)
-
-        # ─ 요약 방식 ─────────────────────────────────────
-        frm1 = tk.LabelFrame(dlg, text="  요약 방식  ", font=FONT_BODY,
-                              bg=CARD_BG, fg=TEXT, padx=12, pady=6)
-        frm1.pack(fill="x", padx=20, pady=4)
-        sum_mode_var = tk.StringVar(value=self._pipeline_sum_mode)
-        tk.Radiobutton(frm1, text="화자 중심 — 참석자별 발언 정리",
-                       variable=sum_mode_var, value="speaker",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm1, text="주제 중심 — 안건별 논의 정리",
-                       variable=sum_mode_var, value="topic",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm1, text="업무미팅 회의록 (MD) — 비즈니스 컨설턴트 스타일, 마크다운",
-                       variable=sum_mode_var, value="formal_md",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm1, text="업무미팅 회의록 (텍스트) — 비즈니스 컨설턴트 스타일, 일반 텍스트",
-                       variable=sum_mode_var, value="formal_text",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm1, text="강의 요약 (MD) — 소주제별 논리적 정리, 신앙/업무 강의 자동 적응",
-                       variable=sum_mode_var, value="lecture_md",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm1, text="흐름 중심 (MD) ★신규★ — 회의 전개 맥락·인과관계 서술",
-                       variable=sum_mode_var, value="flow",
-                       bg=CARD_BG, font=FONT_BODY, fg=SUCCESS, activebackground=CARD_BG).pack(anchor="w")
-
-        # ─ STT 엔진 ──────────────────────────────────────
-        has_clova   = (bool(self._cfg.get("clova_invoke_url", "").strip()) and
-                       bool(self._cfg.get("clova_secret_key", "").strip()))
-        has_chatgpt = bool(self._cfg.get("chatgpt_api_key", "").strip())
-        frm_stt = tk.LabelFrame(dlg, text="  STT 변환 엔진  ", font=FONT_BODY,
-                                bg=CARD_BG, fg=TEXT, padx=12, pady=6)
-        frm_stt.pack(fill="x", padx=20, pady=4)
-        stt_var = tk.StringVar(value=self._pipeline_stt_engine)
-        tk.Radiobutton(frm_stt, text="Gemini (Google)",
-                       variable=stt_var, value="gemini",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm_stt,
-                       text="CLOVA Speech (NAVER) — 한국어 특화, 타임아웃 없음 ★권장★" +
-                            ("" if has_clova else "  ← 설정 탭에서 API 키 입력"),
-                       variable=stt_var, value="clova",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
-                       state="normal" if has_clova else "disabled").pack(anchor="w")
-
-        # ─ AI 엔진 ───────────────────────────────────────
-        frm_ai = tk.LabelFrame(dlg, text="  AI 요약 엔진  ", font=FONT_BODY,
-                               bg=CARD_BG, fg=TEXT, padx=12, pady=8)
-        frm_ai.pack(fill="x", padx=20, pady=4)
-        ai_var = tk.StringVar(value=self._pipeline_ai_engine)
-        has_claude  = bool(self._cfg.get("claude_api_key", "").strip())
-        tk.Radiobutton(frm_ai, text="Gemini (Google)",
-                       variable=ai_var, value="gemini",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        claude_rb = tk.Radiobutton(frm_ai,
-                       text="Claude (Anthropic)" + ("" if has_claude else "  ← 설정 탭에서 API 키 입력"),
-                       variable=ai_var, value="claude",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
-                       state="normal" if has_claude else "disabled")
-        claude_rb.pack(anchor="w")
-        tk.Radiobutton(frm_ai,
-                       text="ChatGPT (OpenAI)" + ("" if has_chatgpt else "  ← 설정 탭에서 API 키 입력"),
-                       variable=ai_var, value="chatgpt",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG,
-                       state="normal" if has_chatgpt else "disabled").pack(anchor="w")
-
-        # ─ 화자 이름 변경 ─────────────────────────────────
-        frm2 = tk.LabelFrame(dlg, text="  화자 이름 변경  ", font=FONT_BODY,
-                              bg=CARD_BG, fg=TEXT, padx=12, pady=8)
-        frm2.pack(fill="x", padx=20, pady=4)
-        rename_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(frm2, text="STT 완료 후 화자 이름을 직접 입력합니다",
-                       variable=rename_var, bg=CARD_BG, font=FONT_BODY,
-                       activebackground=CARD_BG).pack(anchor="w")
-
-        confirmed = {"ok": False}
-
-        def _confirm():
-            confirmed["ok"] = True
-            self._pipeline_sum_mode   = sum_mode_var.get()
-            self._pipeline_ai_engine  = ai_var.get()
-            self._pipeline_stt_engine = stt_var.get()
-            self._pipeline_rename_spk = rename_var.get()
-            dlg.destroy()
-
-        def _cancel():
-            dlg.destroy()
-
-        btn_row = tk.Frame(dlg, bg=CARD_BG)
-        btn_row.pack(pady=12)
-        self._btn(btn_row, "▶ 변환 시작", ACCENT, _confirm, w=14).pack(side="left", padx=6)
-        self._btn(btn_row, "취소", TEXT_LIGHT, _cancel, w=8).pack(side="left", padx=6)
-        dlg.protocol("WM_DELETE_WINDOW", _cancel)
-        self.wait_window(dlg)
-
-        if not confirmed["ok"]:
-            return
+        mode_label_map = {
+            "speaker": "화자 중심", "topic": "주제 중심",
+            "formal_md": "회의양식", "lecture_md": "강의 요약", "flow": "흐름 중심"
+        }
+        engine_label_map = {
+            "gemini": "Gemini", "claude": "Claude", "chatgpt": "ChatGPT"
+        }
+        stt_label_map = {
+            "gemini": "Gemini", "clova": "CLOVA Speech", "chatgpt": "ChatGPT(Whisper)"
+        }
+        mode_lbl   = mode_label_map.get(self._pipeline_sum_mode, self._pipeline_sum_mode)
+        engine_lbl = engine_label_map.get(self._pipeline_ai_engine, self._pipeline_ai_engine)
+        stt_lbl    = stt_label_map.get(self._pipeline_stt_engine, self._pipeline_stt_engine)
+        self._stt_status_var.set(
+            f"⚙ 설정 자동 적용 — STT: {stt_lbl} | 요약방식: {mode_lbl} | AI: {engine_lbl}"
+            f"  (⚙ 설정 탭에서 변경)"
+        )
 
         # ② STT 변환 시작
         num_spk = self._spk_var.get()
@@ -2751,6 +2762,18 @@ class App(tk.Tk):
         self._pipeline_stt_engine = eng
         config.save_config(self._cfg)
 
+    def _save_default_sum_mode(self):
+        mode = self._default_sum_mode_var.get()
+        self._cfg["summary_mode"] = mode
+        self._pipeline_sum_mode = mode
+        config.save_config(self._cfg)
+
+    def _save_summary_engine(self):
+        eng = self._summary_engine_var.get()
+        self._cfg["summary_engine"] = eng
+        self._pipeline_ai_engine = eng
+        config.save_config(self._cfg)
+
     def _test_clova(self):
         invoke_url = self._clova_id_var.get().strip()
         secret_key = self._clova_secret_var.get().strip()
@@ -2950,6 +2973,206 @@ class App(tk.Tk):
         else:
             self._level_bar["value"] = 0
         self.after(300, self._tick)
+
+    # ── 영역 B 메서드들 ─────────────────────────────────
+
+    def _b_pick_stt_file(self):
+        """STT 파일 선택 (*.md)"""
+        path = filedialog.askopenfilename(
+            title="STT 변환 파일 선택",
+            filetypes=[("Markdown 파일", "*.md"), ("텍스트 파일", "*.txt"), ("모든 파일", "*.*")],
+            initialdir=str(config.STT_SAVE_DIR)
+        )
+        if path:
+            self._b_stt_path = path
+            self._b_stt_file_var.set(Path(path).name)
+            self._b_status_var.set("")
+
+    def _b_stop_convert(self):
+        """영역 B 변환 중지"""
+        if hasattr(self, "_b_cancel_event") and self._b_cancel_event:
+            self._b_cancel_event.set()
+
+    def _b_convert_meeting(self):
+        """영역 B: STT 파일 → 회의록 변환"""
+        if not self._b_stt_path or not Path(self._b_stt_path).exists():
+            messagebox.showwarning("알림", "STT 파일을 선택해주세요.")
+            return
+
+        # 요약 방식 선택 팝업
+        dlg = tk.Toplevel(self)
+        dlg.title("요약 방식 선택")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="요약 방식을 선택하세요:", font=FONT_BODY,
+                 bg=BG, fg=TEXT).pack(padx=20, pady=(16, 8))
+
+        default_mode = self._cfg.get("summary_mode", "speaker")
+        sum_mode_var = tk.StringVar(value=default_mode)
+        frm = tk.Frame(dlg, bg=BG)
+        frm.pack(padx=20, pady=4)
+        for label, val in [
+            ("화자 중심 — 발화자별 발언 구조화", "speaker"),
+            ("주제 중심 — 논의 주제별 구조화", "topic"),
+            ("회의양식 — K-Run Ventures 공식 회의록", "formal_md"),
+            ("강의 요약 — 학습/세미나 특화", "lecture_md"),
+            ("흐름 중심 ★신규★ — 맥락·인과관계 서술", "flow"),
+        ]:
+            fg = SUCCESS if val == "flow" else TEXT
+            tk.Radiobutton(frm, text=label, variable=sum_mode_var, value=val,
+                           bg=BG, font=FONT_BODY, fg=fg,
+                           activebackground=BG).pack(anchor="w")
+
+        confirmed = {"ok": False}
+        def _ok():
+            confirmed["ok"] = True
+            dlg.destroy()
+        def _cancel():
+            dlg.destroy()
+
+        btn_row = tk.Frame(dlg, bg=BG)
+        btn_row.pack(pady=12)
+        self._btn(btn_row, "변환 시작", ACCENT, _ok, w=12).pack(side="left", padx=6)
+        self._btn(btn_row, "취소", TEXT_LIGHT, _cancel, w=8).pack(side="left", padx=6)
+        dlg.wait_window()
+
+        if not confirmed["ok"]:
+            return
+
+        chosen_mode = sum_mode_var.get()
+
+        # STT 텍스트 읽기
+        try:
+            stt_text = Path(self._b_stt_path).read_text(encoding="utf-8")
+        except Exception as e:
+            messagebox.showerror("오류", f"STT 파일 읽기 실패: {e}")
+            return
+
+        # 커스텀 프롬프트 (1회성)
+        custom_inst = self._b_custom_prompt.get().strip()
+        # 설정 탭 전역 프롬프트 + 1회성 프롬프트 결합
+        global_prompt = ""
+        if self._cfg.get("custom_prompt_enabled") and self._cfg.get("custom_prompt_text"):
+            global_prompt = self._cfg["custom_prompt_text"]
+        combined_inst = "\n".join(filter(None, [global_prompt, custom_inst]))
+
+        # UI 초기화
+        self._b_cancel_event = threading.Event()
+        self._btn_b_convert.config(state="disabled")
+        self._btn_b_stop.config(state="normal")
+        self._b_result_box.config(state="normal")
+        self._b_result_box.delete("1.0", "end")
+        self._b_result_box.config(state="disabled")
+        self._b_status_var.set("요약 중...")
+
+        mode_label_map = {
+            "speaker": "화자중심", "topic": "주제중심",
+            "formal_md": "회의양식", "lecture_md": "강의요약", "flow": "흐름중심"
+        }
+        mode_label = mode_label_map.get(chosen_mode, chosen_mode)
+
+        def _run():
+            import gemini_service as gs
+            import claude_service as cs
+
+            engine = self._cfg.get("summary_engine", "gemini")
+            has_chatgpt = bool(self._cfg.get("chatgpt_api_key", "").strip())
+            has_claude  = bool(self._cfg.get("claude_api_key", "").strip())
+            has_gemini  = bool(self._cfg.get("gemini_api_key", "").strip())
+
+            def prog(v):
+                self._b_status_var.set(f"요약 중... {v}%")
+
+            if engine == "claude" and has_claude:
+                ok, result = cs.summarize(
+                    stt_text, self._cfg.get("claude_api_key"),
+                    progress_cb=prog, summary_mode=chosen_mode,
+                    cancel_event=self._b_cancel_event,
+                    custom_instruction=combined_inst)
+            elif engine == "chatgpt" and has_chatgpt:
+                ok, result = self._summarize_with_chatgpt(
+                    stt_text, self._cfg.get("chatgpt_api_key"),
+                    progress_cb=prog, summary_mode=chosen_mode,
+                    cancel_event=self._b_cancel_event,
+                    custom_instruction=combined_inst)
+            else:
+                ok, result = gs.summarize(
+                    stt_text, self._cfg.get("gemini_api_key", ""),
+                    progress_cb=prog, summary_mode=chosen_mode,
+                    cancel_event=self._b_cancel_event,
+                    custom_instruction=combined_inst)
+
+            if self._b_cancel_event.is_set():
+                self.after(0, lambda: self._b_status_var.set("중지되었습니다."))
+                self.after(0, lambda: self._btn_b_convert.config(state="normal"))
+                self.after(0, lambda: self._btn_b_stop.config(state="disabled"))
+                return
+
+            if ok:
+                self.after(0, lambda r=result: self._b_on_success(r, mode_label, combined_inst))
+            else:
+                err = result
+                self.after(0, lambda e=err: self._b_status_var.set(f"❌ 오류: {e}"))
+                self.after(0, lambda: self._btn_b_convert.config(state="normal"))
+                self.after(0, lambda: self._btn_b_stop.config(state="disabled"))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _b_on_success(self, summary_text: str, mode_label: str, custom_inst: str):
+        """영역 B 변환 완료 처리"""
+        # 결과 표시
+        self._b_result_box.config(state="normal")
+        self._b_result_box.delete("1.0", "end")
+        self._b_result_box.insert("1.0", summary_text)
+        self._b_result_box.config(state="disabled")
+        self._btn_b_convert.config(state="normal")
+        self._btn_b_stop.config(state="disabled")
+
+        # 파일명 suffix 결정
+        suffix = f"_{mode_label}"
+        if custom_inst.strip():
+            suffix += "_커스텀요약"
+
+        # 기본 파일명 (STT 파일명 기반)
+        stt_stem = Path(self._b_stt_path).stem
+        # _stt 제거
+        if stt_stem.endswith("_stt"):
+            stt_stem = stt_stem[:-4]
+        default_name = stt_stem + suffix + ".md"
+
+        # 저장 다이얼로그
+        out_path = filedialog.asksaveasfilename(
+            title="회의록 저장",
+            initialfile=default_name,
+            initialdir=str(config.SUMMARY_SAVE_DIR),
+            defaultextension=".md",
+            filetypes=[("Markdown", "*.md"), ("모든 파일", "*.*")]
+        )
+        if not out_path:
+            self._b_status_var.set("저장 취소됨. 텍스트는 위에서 복사 가능합니다.")
+            return
+
+        try:
+            Path(out_path).write_text(summary_text, encoding="utf-8")
+            self._b_status_var.set(f"✅ 저장 완료: {Path(out_path).name}")
+            # DB 저장
+            import database as db
+            mid = db.save_meeting(
+                file_name=Path(out_path).stem,
+                summary_text=summary_text,
+                summary_local_path=out_path,
+                stt_local_path=self._b_stt_path,
+                summary_mode=mode_label,
+            )
+            # 회의목록 갱신
+            self._load_meeting_list()
+            if messagebox.askyesno("저장 완료",
+                                   f"회의록이 저장되었습니다.\n\n{out_path}\n\n파일 위치를 탐색기에서 열겠습니까?"):
+                import file_manager as fm
+                fm.open_file_in_explorer(out_path)
+        except Exception as e:
+            messagebox.showerror("저장 오류", str(e))
 
 
 # ════════════════════════════════════════════════════════

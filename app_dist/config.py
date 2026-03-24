@@ -121,6 +121,7 @@ def load_config() -> dict:
         "clova_secret_key": "",
         "stt_engine": "clova",          # "gemini" | "clova" | "chatgpt"
         "summary_engine": "gemini",     # "gemini" | "claude" | "chatgpt"
+        "summary_mode": "speaker",      # "speaker"|"topic"|"formal_md"|"lecture_md"|"flow"
         "recording_dir": str(Path.home() / "Documents" / "Meeting recording"),
         "mp3_subdir":     "녹음파일",
         "stt_subdir":     "STT변환본",
