@@ -135,6 +135,8 @@ def load_config() -> dict:
         "custom_prompt_enabled": False,
         "custom_prompt_text": "",
         "custom_prompts": [],
+        "net_printer_ip":   "",
+        "net_printer_name": "printer",
     }
 
 

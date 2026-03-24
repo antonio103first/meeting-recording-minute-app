@@ -247,3 +247,77 @@ def export_pdf(md_text: str, out_path: str, title: str = "회의록") -> tuple:
         return False, "PDF 변환 실패 (weasyprint 미설치, HTML로 대체 저장도 실패)"
     except Exception as e:
         return False, f"PDF 변환 실패: {e}"
+
+
+def print_to_network(file_path: str, printer_ip: str,
+                     printer_name: str = "printer") -> tuple:
+    """
+    F-02: 네트워크(IP) 프린터로 직접 출력.
+    .md/.txt 는 HTML 임시 파일로 변환 후 전송.
+
+    Windows: lpr 명령어 (Windows Print Services 기능 필요)
+             또는 win32print (pywin32 설치 시)
+    Linux/Mac: lpr -H <ip> -P <name>
+    """
+    try:
+        fpath = Path(file_path)
+        if not fpath.exists():
+            return False, f"파일 없음: {file_path}"
+
+        suffix = fpath.suffix.lower()
+
+        # .md/.txt → HTML 임시 파일 변환
+        if suffix in (".md", ".txt"):
+            from config import APP_DATA_DIR
+            tmp_dir = Path(APP_DATA_DIR)
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            md_text  = fpath.read_text(encoding="utf-8")
+            html_str = convert_md_to_html(md_text, title=fpath.stem)
+            tmp_html = tmp_dir / f"_netprint_{fpath.stem}.html"
+            tmp_html.write_text(html_str, encoding="utf-8")
+            file_to_print = str(tmp_html)
+        else:
+            file_to_print = file_path
+
+        if sys.platform == "win32":
+            # 방법 1: win32print (pywin32 설치 시)
+            try:
+                import win32print  # type: ignore
+                printer_unc = f"\\\\{printer_ip}\\{printer_name}"
+                hPrinter = win32print.OpenPrinter(printer_unc)
+                try:
+                    win32print.StartDocPrinter(hPrinter, 1,
+                        (f"회의록_{fpath.stem}", None, "RAW"))
+                    win32print.StartPagePrinter(hPrinter)
+                    with open(file_to_print, "rb") as fp:
+                        win32print.WritePrinter(hPrinter, fp.read())
+                    win32print.EndPagePrinter(hPrinter)
+                    win32print.EndDocPrinter(hPrinter)
+                finally:
+                    win32print.ClosePrinter(hPrinter)
+                return True, f"✅ 네트워크 프린터 전송 완료 ({printer_ip})"
+            except ImportError:
+                pass  # pywin32 없으면 lpr로 폴백
+
+            # 방법 2: Windows lpr 명령어
+            result = subprocess.run(
+                ["lpr", "-S", printer_ip, "-P", printer_name, file_to_print],
+                capture_output=True, text=True, timeout=15)
+            if result.returncode == 0:
+                return True, f"✅ 네트워크 프린터 전송 완료 ({printer_ip})"
+            else:
+                err = result.stderr.strip() or "lpr 명령 실패"
+                return False, (f"네트워크 인쇄 실패: {err}\n\n"
+                               "Windows 기능 → 인쇄 및 문서 서비스 → LPR 포트 모니터가\n"
+                               "활성화되어 있는지 확인해주세요.")
+        else:
+            # Linux / macOS
+            result = subprocess.run(
+                ["lpr", "-H", printer_ip, "-P", printer_name, file_to_print],
+                capture_output=True, text=True, timeout=15)
+            if result.returncode == 0:
+                return True, f"✅ 네트워크 프린터 전송 완료 ({printer_ip})"
+            return False, f"네트워크 인쇄 실패: {result.stderr.strip()}"
+
+    except Exception as e:
+        return False, f"네트워크 인쇄 오류: {e}"

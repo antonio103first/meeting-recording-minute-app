@@ -383,10 +383,12 @@ class App(tk.Tk):
                   self._view_meeting_full, w=12).pack(side="left", padx=4)
         self._btn(btn_row, "🖨 출력·인쇄", "#8E44AD",
                   self._print_meeting, w=12).pack(side="left", padx=4)
-        self._btn(btn_row, "📤 공유 (파일탐색기)", "#16A085",
-                  self._share_meeting, w=18).pack(side="left", padx=4)
+        self._btn(btn_row, "✏ 화자이름", "#7D6608",
+                  self._rename_speaker_dialog, w=11).pack(side="left", padx=4)
+        self._btn(btn_row, "📤 공유 ▼", "#16A085",
+                  self._share_menu, w=11).pack(side="left", padx=4)
         self._btn(btn_row, "📥 PDF 저장", "#D35400",
-                  self._export_pdf_meeting, w=12).pack(side="left", padx=4)
+                  self._export_pdf_meeting, w=11).pack(side="left", padx=4)
         self._btn(btn_row, "🗑 삭제", DANGER,
                   self._delete_meeting, w=10).pack(side="left", padx=4)
 
@@ -837,6 +839,44 @@ class App(tk.Tk):
         self._audio_path_lbl = self._mp3_path_lbl
 
         # 앱 데이터 경로 표시
+        # ─ 네트워크 프린터 설정 ──────────────────────────────
+        self._card(inner, "🖨 네트워크 프린터 설정").pack(fill="x", **pad)
+        net_card = self._last_card
+
+        tk.Label(net_card,
+                 text="네트워크(IP) 프린터로 회의록을 직접 출력합니다.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
+
+        net_ip_row = tk.Frame(net_card, bg=CARD_BG)
+        net_ip_row.pack(fill="x", pady=4)
+        tk.Label(net_ip_row, text="프린터 IP:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
+        self._net_printer_ip_var = tk.StringVar(
+            value=self._cfg.get("net_printer_ip", ""))
+        tk.Entry(net_ip_row, textvariable=self._net_printer_ip_var,
+                 width=22, font=FONT_BODY).pack(side="left")
+
+        net_name_row = tk.Frame(net_card, bg=CARD_BG)
+        net_name_row.pack(fill="x", pady=2)
+        tk.Label(net_name_row, text="프린터 이름:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
+        self._net_printer_name_var = tk.StringVar(
+            value=self._cfg.get("net_printer_name", "printer"))
+        tk.Entry(net_name_row, textvariable=self._net_printer_name_var,
+                 width=22, font=FONT_BODY).pack(side="left")
+
+        net_btn_row = tk.Frame(net_card, bg=CARD_BG)
+        net_btn_row.pack(pady=4)
+        self._btn(net_btn_row, "저장", ACCENT,
+                  self._save_net_printer, w=8).pack(side="left", padx=4)
+        self._btn(net_btn_row, "🔌 연결 테스트", SUCCESS,
+                  self._test_net_printer, w=14).pack(side="left", padx=4)
+        self._net_printer_status_var = tk.StringVar(value="")
+        tk.Label(net_card, textvariable=self._net_printer_status_var,
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
+        tk.Label(net_card,
+                 text="▶ 예) IP: 192.168.1.100  이름: HP_LaserJet",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(2, 0))
         appdata_row = tk.Frame(path_card, bg=CARD_BG)
         appdata_row.pack(fill="x", pady=(6, 2))
         tk.Label(appdata_row, text="앱 데이터:", font=FONT_BODY,
@@ -2083,7 +2123,7 @@ class App(tk.Tk):
         self._view_meeting_full()
 
     def _print_meeting(self):
-        """🖨 출력·인쇄 — 요약 파일을 기본 앱으로 인쇄"""
+        """🖨 출력·인쇄 — 로컬 / 네트워크 프린터 선택"""
         sel = self._tree.selection()
         if not sel:
             messagebox.showwarning("알림", "인쇄할 항목을 선택해주세요.")
@@ -2093,7 +2133,6 @@ class App(tk.Tk):
         sum_path = data.get("summary_local_path", "")
 
         if not sum_path or not Path(sum_path).exists():
-            # 파일 없으면 임시 파일로 생성
             summary_text = data.get("summary_text", "")
             if not summary_text:
                 messagebox.showwarning("알림", "요약 내용이 없습니다.")
@@ -2102,25 +2141,222 @@ class App(tk.Tk):
             tmp_path.write_text(summary_text, encoding="utf-8")
             sum_path = str(tmp_path)
 
+        # 네트워크 프린터 IP 설정 여부 확인
+        net_ip   = self._cfg.get("net_printer_ip", "").strip()
+        net_name = self._cfg.get("net_printer_name", "printer").strip()
+
+        if net_ip:
+            # 인쇄 방법 선택 메뉴
+            menu = tk.Menu(self, tearoff=0)
+            menu.add_command(
+                label="🖥  로컬 프린터 (기본)",
+                command=lambda: self._do_print_local(sum_path))
+            menu.add_command(
+                label=f"🌐  네트워크 프린터 ({net_ip})",
+                command=lambda: self._do_print_network(sum_path, net_ip, net_name))
+            try:
+                menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
+            finally:
+                menu.grab_release()
+        else:
+            self._do_print_local(sum_path)
+
+    def _do_print_local(self, sum_path: str):
+        """로컬 기본 프린터로 인쇄"""
         ok, msg = fm.print_file(sum_path)
         if not ok:
             messagebox.showerror("인쇄 오류", msg)
 
-    def _share_meeting(self):
-        """📤 공유 — 파일탐색기에서 요약 파일 위치 열기"""
+    def _do_print_network(self, sum_path: str, ip: str, printer_name: str):
+        """네트워크 IP 프린터로 인쇄"""
+        ok, msg = fm.print_to_network(sum_path, ip, printer_name)
+        if not ok:
+            messagebox.showerror("네트워크 인쇄 오류", msg)
+        else:
+            messagebox.showinfo("완료", msg)
+
+    # ── 화자이름 변경 ────────────────────────────────────
+    def _rename_speaker_dialog(self):
+        """✏ 화자이름 변경 — STT 원문 자동 감지 + 일괄 치환"""
+        import re
+        sel = self._tree.selection()
+        if not sel:
+            messagebox.showwarning("알림", "항목을 선택해주세요.")
+            return
+        mid  = int(sel[0])
+        data = database.get_meeting(mid)
+        stt_text     = data.get("stt_text", "")
+        summary_text = data.get("summary_text", "")
+        if not stt_text:
+            messagebox.showwarning("알림", "STT 원문이 없습니다.")
+            return
+
+        # 화자 패턴 자동 감지 (CLOVA/Gemini/Whisper 공통 패턴)
+        raw_speakers = re.findall(
+            r'^([가-힣A-Za-z_][\w가-힣]*(?:\s*\d+)?)\s*:', stt_text, re.MULTILINE)
+        speakers = sorted(set(raw_speakers), key=lambda s: (
+            not bool(re.match(r'^(화자|Speaker|SPEAKER)', s)), s))
+        if not speakers:
+            messagebox.showinfo("알림", "화자 패턴을 감지하지 못했습니다.\n"
+                                        "STT 원문 형식을 확인해주세요.")
+            return
+
+        # 팝업 다이얼로그
+        dlg = tk.Toplevel(self)
+        dlg.title("✏ 화자이름 변경")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.configure(bg=BG)
+        self.update_idletasks()
+        w, h = 420, min(120 + len(speakers) * 40, 520)
+        x = self.winfo_x() + self.winfo_width() // 2 - w // 2
+        y = self.winfo_y() + self.winfo_height() // 2 - h // 2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+
+        tk.Label(dlg, text="감지된 화자명을 원하는 이름으로 변경하세요.",
+                 font=FONT_SMALL, bg=BG, fg=TEXT_LIGHT).pack(pady=(10, 4))
+
+        frm = tk.Frame(dlg, bg=CARD_BG, relief="flat", bd=1)
+        frm.pack(fill="both", expand=True, padx=16, pady=4)
+
+        entries = {}
+        for spk in speakers:
+            row = tk.Frame(frm, bg=CARD_BG)
+            row.pack(fill="x", pady=3, padx=10)
+            tk.Label(row, text=f"{spk}:", font=FONT_BODY,
+                     bg=CARD_BG, fg=TEXT, width=18, anchor="w").pack(side="left")
+            var = tk.StringVar(value=spk)
+            tk.Entry(row, textvariable=var, font=FONT_BODY, width=18).pack(side="left")
+            entries[spk] = var
+
+        scope_var = tk.IntVar(value=3)  # 1=STT만, 2=요약만, 3=둘다
+        scope_frm = tk.Frame(dlg, bg=BG)
+        scope_frm.pack(pady=4)
+        tk.Label(scope_frm, text="적용 범위:", font=FONT_SMALL,
+                 bg=BG, fg=TEXT).pack(side="left", padx=6)
+        for label, val in [("STT+요약", 3), ("STT만", 1), ("요약만", 2)]:
+            tk.Radiobutton(scope_frm, text=label, variable=scope_var, value=val,
+                           font=FONT_SMALL, bg=BG).pack(side="left", padx=4)
+
+        def _apply():
+            mapping = {old: var.get().strip() or old
+                       for old, var in entries.items()}
+            scope = scope_var.get()
+
+            new_stt = stt_text
+            new_sum = summary_text
+            for old, new in mapping.items():
+                if old == new:
+                    continue
+                pattern = re.compile(r'^' + re.escape(old) + r'\s*:', re.MULTILINE)
+                repl = f"{new}:"
+                if scope in (1, 3):
+                    new_stt = pattern.sub(repl, new_stt)
+                if scope in (2, 3):
+                    new_sum = re.sub(re.escape(old), new, new_sum)
+
+            # DB 업데이트
+            database.update_meeting_summary(mid, stt_text=new_stt, summary_text=new_sum)
+
+            # 로컬 파일 업데이트
+            for path_key, text in [("stt_local_path", new_stt),
+                                    ("summary_local_path", new_sum)]:
+                fpath = data.get(path_key, "")
+                if fpath and Path(fpath).exists():
+                    try:
+                        Path(fpath).write_text(text, encoding="utf-8")
+                    except Exception:
+                        pass
+
+            # 화면 즉시 갱신
+            self._sum_detail_box.delete("1.0", "end")
+            self._sum_detail_box.insert("1.0", new_sum)
+            self._stt_detail_box.delete("1.0", "end")
+            self._stt_detail_box.insert("1.0", new_stt)
+
+            dlg.destroy()
+            messagebox.showinfo("완료", "화자이름이 변경되었습니다.")
+
+        btn_row = tk.Frame(dlg, bg=BG)
+        btn_row.pack(pady=8)
+        self._btn(btn_row, "✅ 적용", SUCCESS, _apply, w=10).pack(side="left", padx=6)
+        self._btn(btn_row, "취소", TEXT_LIGHT, dlg.destroy, w=8).pack(side="left")
+
+    # ── 공유 드롭다운 ────────────────────────────────────
+    def _share_menu(self):
+        """📤 공유 ▼ — 드롭다운 메뉴"""
         sel = self._tree.selection()
         if not sel:
             messagebox.showwarning("알림", "공유할 항목을 선택해주세요.")
             return
         mid  = int(sel[0])
         data = database.get_meeting(mid)
-        sum_path = data.get("summary_local_path", "")
 
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="📋  클립보드 복사",
+                         command=lambda: self._share_clipboard(data))
+        menu.add_command(label="✉   이메일 전송",
+                         command=lambda: self._share_email(data))
+        menu.add_command(label="💬  카카오톡 공유",
+                         command=lambda: self._share_kakao(data))
+        menu.add_separator()
+        menu.add_command(label="📁  파일 탐색기에서 열기",
+                         command=lambda: self._share_explorer(data))
+        try:
+            menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
+        finally:
+            menu.grab_release()
+
+    def _share_clipboard(self, data: dict):
+        """📋 클립보드에 요약 텍스트 복사"""
+        text = data.get("summary_text", "")
+        if not text:
+            messagebox.showwarning("알림", "요약 내용이 없습니다.")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        messagebox.showinfo("완료", "회의록 요약이 클립보드에 복사되었습니다.")
+
+    def _share_email(self, data: dict):
+        """✉ 기본 메일 클라이언트로 이메일 전송"""
+        import urllib.parse
+        subject = urllib.parse.quote(
+            f"[회의록] {data.get('file_name', '회의록')}", safe="")
+        body = urllib.parse.quote(
+            data.get("summary_text", ""), safe="")
+        webbrowser.open(f"mailto:?subject={subject}&body={body}")
+
+    def _share_kakao(self, data: dict):
+        """💬 카카오톡 공유 — KakaoTalk PC URL 스킴"""
+        import urllib.parse
+        summary = data.get("summary_text", "")
+        title   = data.get("file_name", "회의록")
+        # 카카오톡 PC 공유 URL 스킴 (KakaoTalk 설치 필요)
+        msg = urllib.parse.quote(f"[{title}]\n\n{summary[:500]}", safe="")
+        url = f"kakaotalk://send?msg={msg}"
+        try:
+            webbrowser.open(url)
+        except Exception:
+            # 카카오톡 미설치 시 안내
+            messagebox.showinfo(
+                "카카오톡 공유",
+                "카카오톡 PC 버전이 설치되어 있지 않거나\n"
+                "URL 스킴을 지원하지 않는 환경입니다.\n\n"
+                "클립보드 복사 후 카카오톡에 직접 붙여넣기 해주세요.")
+
+    def _share_explorer(self, data: dict):
+        """📁 파일 탐색기에서 열기"""
+        sum_path = data.get("summary_local_path", "")
         if sum_path and Path(sum_path).exists():
             fm.open_file_in_explorer(sum_path)
         else:
-            # 파일탐색기로 요약 폴더 열기
             fm.open_file_in_explorer(str(config.SUMMARY_SAVE_DIR))
+
+    # 구버전 하위 호환
+    def _share_meeting(self):
+        sel = self._tree.selection()
+        if sel:
+            self._share_menu()
 
     def _export_pdf_meeting(self):
         """📥 PDF 저장 — 회의록 요약을 PDF(또는 HTML) 파일로 내보내기"""
@@ -2328,6 +2564,45 @@ class App(tk.Tk):
                   w=30).pack(side="left", padx=6)
         self._btn(btn_row, "닫기", TEXT_LIGHT,
                   dlg.destroy, w=8).pack(side="left", padx=6)
+
+    # ── 네트워크 프린터 설정 메서드 ─────────────────────
+    def _save_net_printer(self):
+        """네트워크 프린터 IP / 이름 저장"""
+        ip   = self._net_printer_ip_var.get().strip()
+        name = self._net_printer_name_var.get().strip() or "printer"
+        self._cfg["net_printer_ip"]   = ip
+        self._cfg["net_printer_name"] = name
+        config.save_config(self._cfg)
+        self._net_printer_status_var.set(
+            f"✅ 저장 완료 ({ip})" if ip else "✅ 저장 완료 (로컬 전용)")
+
+    def _test_net_printer(self):
+        """네트워크 프린터 연결 테스트 (ping)"""
+        ip = self._net_printer_ip_var.get().strip()
+        if not ip:
+            messagebox.showwarning("알림", "프린터 IP를 입력해주세요.")
+            return
+        self._net_printer_status_var.set("연결 확인 중...")
+        self.update_idletasks()
+
+        def _ping():
+            import subprocess, sys
+            try:
+                if sys.platform == "win32":
+                    result = subprocess.run(
+                        ["ping", "-n", "1", "-w", "2000", ip],
+                        capture_output=True, text=True, timeout=5)
+                else:
+                    result = subprocess.run(
+                        ["ping", "-c", "1", "-W", "2", ip],
+                        capture_output=True, text=True, timeout=5)
+                ok = result.returncode == 0
+                msg = f"✅ {ip} 응답 확인" if ok else f"❌ {ip} 응답 없음 (방화벽 또는 IP 확인)"
+            except Exception as e:
+                msg = f"❌ 테스트 실패: {str(e)[:60]}"
+            self.after(0, lambda: self._net_printer_status_var.set(msg))
+
+        threading.Thread(target=_ping, daemon=True).start()
 
     def _toggle_gpt_key_vis(self):
         self._gpt_show = not self._gpt_show
