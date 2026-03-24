@@ -77,6 +77,7 @@ cd /d "%~dp0"
     --hidden-import "google.auth.transport.requests" ^
     --hidden-import "googleapiclient.discovery" ^
     --hidden-import "googleapiclient.http" ^
+    --hidden-import "googleapiclient.errors" ^
     --hidden-import "anthropic" ^
     --hidden-import "openai" ^
     --hidden-import "markdown" ^
