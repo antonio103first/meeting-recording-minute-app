@@ -2316,7 +2316,8 @@ class App(tk.Tk):
                 self.after(0, lambda: self._gpt_status_var.set(
                     "❌ openai 패키지 미설치: pip install openai"))
             except Exception as e:
-                self.after(0, lambda: self._gpt_status_var.set(f"❌ {str(e)[:80]}"))
+                err_msg = str(e)[:80]
+                self.after(0, lambda: self._gpt_status_var.set(f"❌ {err_msg}"))
 
         threading.Thread(target=_run, daemon=True).start()
 
