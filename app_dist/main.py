@@ -875,116 +875,92 @@ class App(tk.Tk):
         self._card(inner, "📁 PC 저장 폴더 설정").pack(fill="x", **pad)
         path_card = self._last_card
 
-        # 루트 폴더
-        self._rec_dir_var = tk.StringVar(value=str(config.RECORDING_BASE))
-        dir_row = tk.Frame(path_card, bg=CARD_BG)
-        dir_row.pack(fill="x", pady=4)
-        tk.Label(dir_row, text="루트 저장 폴더:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=16, anchor="w").pack(side="left")
-        tk.Label(dir_row, textvariable=self._rec_dir_var,
-                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left", padx=4)
-        self._btn(dir_row, "📂 변경", ACCENT,
-                  self._change_recording_dir, w=8).pack(side="right")
+        tk.Label(path_card,
+                 text="각 폴더의 저장 경로를 독립적으로 지정할 수 있습니다. (📂 찾아보기로 전체 경로 선택)",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(0, 8))
 
-        ttk.Separator(path_card).pack(fill="x", pady=(4, 8))
+        for _lbl, _cfg_key, _default_dir in [
+            ("① MP3 녹음파일",  "mp3_full_path",  str(config.MP3_SAVE_DIR)),
+            ("② STT 변환본",    "stt_full_path",  str(config.STT_SAVE_DIR)),
+            ("③ 회의록 요약",   "sum_full_path",  str(config.SUMMARY_SAVE_DIR)),
+        ]:
+            _row = tk.Frame(path_card, bg=CARD_BG)
+            _row.pack(fill="x", pady=4)
+            tk.Label(_row, text=_lbl + ":", font=FONT_BODY,
+                     bg=CARD_BG, fg=TEXT, width=14, anchor="w").pack(side="left")
+            _var = tk.StringVar(value=self._cfg.get(_cfg_key, _default_dir))
+            tk.Entry(_row, textvariable=_var, font=FONT_SMALL, width=34,
+                     state="readonly").pack(side="left", padx=4)
 
-        # MP3 폴더 설정
-        mp3_row = tk.Frame(path_card, bg=CARD_BG)
-        mp3_row.pack(fill="x", pady=3)
-        tk.Label(mp3_row, text="① MP3 폴더명:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=16, anchor="w").pack(side="left")
-        self._mp3_sub_var = tk.StringVar(
-            value=self._cfg.get("mp3_subdir", self._cfg.get("audio_subdir", "녹음파일")))
-        tk.Entry(mp3_row, textvariable=self._mp3_sub_var,
-                 width=14, font=FONT_SMALL).pack(side="left", padx=4)
-        self._btn(mp3_row, "저장", ACCENT,
-                  self._save_subdir_settings, w=6).pack(side="left")
-        self._mp3_path_lbl = tk.Label(mp3_row,
-            text=str(config.MP3_SAVE_DIR),
-            font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT)
-        self._mp3_path_lbl.pack(side="left", padx=6)
+            def _make_browse(v=_var, k=_cfg_key):
+                def _browse():
+                    d = filedialog.askdirectory(title="폴더 선택", initialdir=v.get())
+                    if d:
+                        v.set(d)
+                        self._cfg[k] = d
+                        config.save_config(self._cfg)
+                        config.reload_paths()
+                return _browse
+            self._btn(_row, "📂 찾아보기", ACCENT, _make_browse(), w=10).pack(side="left", padx=2)
 
-        # STT 폴더 설정
-        stt_sub_row = tk.Frame(path_card, bg=CARD_BG)
-        stt_sub_row.pack(fill="x", pady=3)
-        tk.Label(stt_sub_row, text="② STT변환본 폴더명:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=16, anchor="w").pack(side="left")
-        self._stt_sub_var = tk.StringVar(
-            value=self._cfg.get("stt_subdir", "STT변환본"))
-        tk.Entry(stt_sub_row, textvariable=self._stt_sub_var,
-                 width=14, font=FONT_SMALL).pack(side="left", padx=4)
-        self._btn(stt_sub_row, "저장", ACCENT,
-                  self._save_subdir_settings, w=6).pack(side="left")
-        self._stt_path_lbl = tk.Label(stt_sub_row,
-            text=str(config.STT_SAVE_DIR),
-            font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT)
-        self._stt_path_lbl.pack(side="left", padx=6)
-
-        # 요약 폴더 설정
-        sum_sub_row = tk.Frame(path_card, bg=CARD_BG)
-        sum_sub_row.pack(fill="x", pady=3)
-        tk.Label(sum_sub_row, text="③ 회의록(요약) 폴더명:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=16, anchor="w").pack(side="left")
-        self._sum_sub_var = tk.StringVar(
-            value=self._cfg.get("summary_subdir", "회의록(요약)"))
-        tk.Entry(sum_sub_row, textvariable=self._sum_sub_var,
-                 width=14, font=FONT_SMALL).pack(side="left", padx=4)
-        self._btn(sum_sub_row, "저장", ACCENT,
-                  self._save_subdir_settings, w=6).pack(side="left")
-        self._sum_path_lbl = tk.Label(sum_sub_row,
-            text=str(config.SUMMARY_SAVE_DIR),
-            font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT)
-        self._sum_path_lbl.pack(side="left", padx=6)
-
-        # 하위 호환 alias
-        self._audio_sub_var = self._mp3_sub_var
+        # 하위 호환 stub 속성 (다른 메서드 참조 대비)
+        self._rec_dir_var    = tk.StringVar(value=str(config.RECORDING_BASE))
+        self._mp3_sub_var    = tk.StringVar()
+        self._stt_sub_var    = tk.StringVar()
+        self._sum_sub_var    = tk.StringVar()
+        self._audio_sub_var  = self._mp3_sub_var
+        self._mp3_path_lbl   = tk.Label(path_card, bg=CARD_BG)
+        self._stt_path_lbl   = tk.Label(path_card, bg=CARD_BG)
+        self._sum_path_lbl   = tk.Label(path_card, bg=CARD_BG)
         self._audio_path_lbl = self._mp3_path_lbl
 
-        # 앱 데이터 경로 표시
-        # ─ 네트워크 프린터 설정 ──────────────────────────────
-        self._card(inner, "🖨 네트워크 프린터 설정").pack(fill="x", **pad)
-        net_card = self._last_card
-
-        tk.Label(net_card,
-                 text="네트워크(IP) 프린터로 회의록을 직접 출력합니다.",
-                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
-
-        net_ip_row = tk.Frame(net_card, bg=CARD_BG)
-        net_ip_row.pack(fill="x", pady=4)
-        tk.Label(net_ip_row, text="프린터 IP:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
-        self._net_printer_ip_var = tk.StringVar(
-            value=self._cfg.get("net_printer_ip", ""))
-        tk.Entry(net_ip_row, textvariable=self._net_printer_ip_var,
-                 width=22, font=FONT_BODY).pack(side="left")
-
-        net_name_row = tk.Frame(net_card, bg=CARD_BG)
-        net_name_row.pack(fill="x", pady=2)
-        tk.Label(net_name_row, text="프린터 이름:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=12, anchor="w").pack(side="left")
-        self._net_printer_name_var = tk.StringVar(
-            value=self._cfg.get("net_printer_name", "printer"))
-        tk.Entry(net_name_row, textvariable=self._net_printer_name_var,
-                 width=22, font=FONT_BODY).pack(side="left")
-
-        net_btn_row = tk.Frame(net_card, bg=CARD_BG)
-        net_btn_row.pack(pady=4)
-        self._btn(net_btn_row, "저장", ACCENT,
-                  self._save_net_printer, w=8).pack(side="left", padx=4)
-        self._btn(net_btn_row, "🔌 연결 테스트", SUCCESS,
-                  self._test_net_printer, w=14).pack(side="left", padx=4)
-        self._net_printer_status_var = tk.StringVar(value="")
-        tk.Label(net_card, textvariable=self._net_printer_status_var,
-                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
-        tk.Label(net_card,
-                 text="▶ 예) IP: 192.168.1.100  이름: HP_LaserJet",
-                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(2, 0))
         appdata_row = tk.Frame(path_card, bg=CARD_BG)
         appdata_row.pack(fill="x", pady=(6, 2))
         tk.Label(appdata_row, text="앱 데이터:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=16, anchor="w").pack(side="left")
+                 bg=CARD_BG, fg=TEXT, width=14, anchor="w").pack(side="left")
         tk.Label(appdata_row, text=str(config.APP_DATA_DIR),
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left")
+
+        # ─ 로컬 프린터 설정 ──────────────────────────────
+        self._card(inner, "🖨 로컬 프린터 설정").pack(fill="x", **pad)
+        net_card = self._last_card
+
+        tk.Label(net_card,
+                 text="PC에 연결된 프린터를 선택하여 기본 인쇄 프린터로 지정합니다.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(0, 4))
+
+        self._default_printer_var = tk.StringVar(value="프린터 목록 로딩 중...")
+        tk.Label(net_card, textvariable=self._default_printer_var,
+                 font=FONT_BODY, bg=CARD_BG, fg=SUCCESS).pack(anchor="w", pady=(0, 4))
+
+        prt_list_frame = tk.Frame(net_card, bg=CARD_BG)
+        prt_list_frame.pack(fill="x", pady=4)
+        self._printer_listbox = tk.Listbox(
+            prt_list_frame, height=5, font=FONT_BODY,
+            selectmode="single", relief="solid", bd=1,
+            bg="#FAFAFA", fg=TEXT)
+        prt_sb = ttk.Scrollbar(prt_list_frame, orient="vertical",
+                                command=self._printer_listbox.yview)
+        self._printer_listbox.configure(yscrollcommand=prt_sb.set)
+        self._printer_listbox.pack(side="left", fill="x", expand=True)
+        prt_sb.pack(side="right", fill="y")
+
+        prt_btn_row = tk.Frame(net_card, bg=CARD_BG)
+        prt_btn_row.pack(pady=6)
+        self._btn(prt_btn_row, "🔄 목록 새로고침", ACCENT,
+                  self._refresh_printer_list, w=14).pack(side="left", padx=4)
+        self._btn(prt_btn_row, "✅ 기본 프린터로 설정", SUCCESS,
+                  self._set_default_printer, w=18).pack(side="left", padx=4)
+
+        self._net_printer_status_var = tk.StringVar(value="")
+        tk.Label(net_card, textvariable=self._net_printer_status_var,
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
+
+        # 하위 호환 stub 변수
+        self._net_printer_ip_var   = tk.StringVar()
+        self._net_printer_name_var = tk.StringVar()
+
+        self.after(300, self._refresh_printer_list)
 
     # ════════════════════════════════════════════════════
     # 첫 실행 마법사
@@ -2127,7 +2103,25 @@ class App(tk.Tk):
 
         btn_row = tk.Frame(dlg, bg=CARD_BG)
         btn_row.pack(pady=8)
-        self._btn(btn_row, "닫기", TEXT_LIGHT, dlg.destroy, w=12).pack()
+        sum_path_full  = data.get("summary_local_path", "")
+        stt_path_full  = data.get("stt_local_path", "")
+
+        def _open_file(p):
+            if p and Path(p).exists():
+                if sys.platform == "win32":
+                    os.startfile(p)
+                else:
+                    subprocess.Popen(["xdg-open", p])
+            else:
+                messagebox.showwarning("알림", f"파일을 찾을 수 없습니다:\n{p}")
+
+        if sum_path_full and Path(sum_path_full).exists():
+            self._btn(btn_row, "📂 회의록 파일 열기", ACCENT,
+                      lambda p=sum_path_full: _open_file(p), w=16).pack(side="left", padx=4)
+        if stt_path_full and Path(stt_path_full).exists():
+            self._btn(btn_row, "📂 STT 파일 열기", SUCCESS,
+                      lambda p=stt_path_full: _open_file(p), w=14).pack(side="left", padx=4)
+        self._btn(btn_row, "닫기", TEXT_LIGHT, dlg.destroy, w=10).pack(side="left", padx=4)
 
     # ── 이전 버전 하위 호환 ─────────────────────────────
     def _view_meeting(self):
@@ -2203,13 +2197,24 @@ class App(tk.Tk):
             return
 
         # 화자 패턴 자동 감지 (CLOVA/Gemini/Whisper 공통 패턴)
-        raw_speakers = re.findall(
+        # 형식 1: [화자1], [화자 1] — CLOVA STT 출력 형식 (브래킷)
+        bracket_nums = re.findall(r'\[화자\s*(\d+)\]', stt_text)
+        bracket_speakers = [f"[화자{n}]" for n in sorted(set(bracket_nums), key=int)]
+
+        # 형식 2: 화자1:, Speaker 1:, 이름: — 콜론 구분 형식
+        colon_raw = re.findall(
             r'^([가-힣A-Za-z_][\w가-힣]*(?:\s*\d+)?)\s*:', stt_text, re.MULTILINE)
-        speakers = sorted(set(raw_speakers), key=lambda s: (
+        colon_speakers = sorted(set(colon_raw), key=lambda s: (
             not bool(re.match(r'^(화자|Speaker|SPEAKER)', s)), s))
+
+        speakers = bracket_speakers + [s for s in colon_speakers
+                                       if s not in bracket_speakers]
         if not speakers:
-            messagebox.showinfo("알림", "화자 패턴을 감지하지 못했습니다.\n"
-                                        "STT 원문 형식을 확인해주세요.")
+            messagebox.showinfo("알림",
+                "화자 패턴을 감지하지 못했습니다.\n\n"
+                "지원 형식:\n"
+                "  • [화자1] 내용 ... (CLOVA STT)\n"
+                "  • 화자1: 내용 ... (일반 형식)")
             return
 
         # 팝업 다이얼로그
@@ -2259,12 +2264,21 @@ class App(tk.Tk):
             for old, new in mapping.items():
                 if old == new:
                     continue
-                pattern = re.compile(r'^' + re.escape(old) + r'\s*:', re.MULTILINE)
-                repl = f"{new}:"
-                if scope in (1, 3):
-                    new_stt = pattern.sub(repl, new_stt)
-                if scope in (2, 3):
-                    new_sum = re.sub(re.escape(old), new, new_sum)
+                if old.startswith("[") and old.endswith("]"):
+                    # [화자N] 브래킷 형식 치환
+                    repl_new = f"[{new}]"
+                    if scope in (1, 3):
+                        new_stt = new_stt.replace(old, repl_new)
+                    if scope in (2, 3):
+                        new_sum = new_sum.replace(old, repl_new)
+                else:
+                    # 콜론 형식 치환
+                    pattern = re.compile(r'^' + re.escape(old) + r'\s*:', re.MULTILINE)
+                    repl = f"{new}:"
+                    if scope in (1, 3):
+                        new_stt = pattern.sub(repl, new_stt)
+                    if scope in (2, 3):
+                        new_sum = re.sub(re.escape(old), new, new_sum)
 
             # DB 업데이트
             database.update_meeting_summary(mid, stt_text=new_stt, summary_text=new_sum)
@@ -2587,6 +2601,90 @@ class App(tk.Tk):
         config.save_config(self._cfg)
         self._net_printer_status_var.set(
             f"✅ 저장 완료 ({ip})" if ip else "✅ 저장 완료 (로컬 전용)")
+
+    def _refresh_printer_list(self):
+        """로컬 PC 프린터 목록 조회 및 Listbox 갱신"""
+        self._net_printer_status_var.set("프린터 목록 조회 중...")
+        self.update_idletasks()
+        printers = []
+        try:
+            import win32print  # type: ignore
+            raw = win32print.EnumPrinters(
+                win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS,
+                None, 2)
+            default_name = ""
+            try:
+                default_name = win32print.GetDefaultPrinter()
+            except Exception:
+                pass
+            for info in raw:
+                name = info["pPrinterName"]
+                label = f"★ {name} (기본)" if name == default_name else f"  {name}"
+                printers.append((label, name))
+        except ImportError:
+            # pywin32 미설치 — 대체 방법 (wmic)
+            import subprocess, sys
+            if sys.platform == "win32":
+                try:
+                    result = subprocess.run(
+                        ["wmic", "printer", "get", "Name"],
+                        capture_output=True, text=True, timeout=8)
+                    for line in result.stdout.splitlines():
+                        line = line.strip()
+                        if line and line.lower() != "name":
+                            printers.append((line, line))
+                except Exception:
+                    pass
+        except Exception as e:
+            self._net_printer_status_var.set(f"❌ 조회 실패: {str(e)[:60]}")
+            return
+
+        self._printer_listbox.delete(0, "end")
+        self._printer_data = [p[1] for p in printers]  # 실제 프린터명 저장
+        for label, _ in printers:
+            self._printer_listbox.insert("end", label)
+
+        if printers:
+            self._net_printer_status_var.set(f"✅ {len(printers)}개 프린터 조회 완료")
+        else:
+            self._net_printer_status_var.set("프린터를 찾을 수 없습니다.")
+
+    def _set_default_printer(self):
+        """선택한 프린터를 기본 프린터로 설정"""
+        sel = self._printer_listbox.curselection()
+        if not sel:
+            messagebox.showwarning("알림", "목록에서 프린터를 선택해주세요.")
+            return
+        idx = sel[0]
+        printer_data = getattr(self, "_printer_data", [])
+        if idx >= len(printer_data):
+            return
+        printer_name = printer_data[idx]
+        try:
+            import win32print  # type: ignore
+            win32print.SetDefaultPrinter(printer_name)
+            self._cfg["net_printer_name"] = printer_name
+            self._cfg["net_printer_ip"]   = ""
+            config.save_config(self._cfg)
+            self._net_printer_status_var.set(f"✅ 기본 프린터 설정 완료: {printer_name}")
+            # 목록 새로고침 (기본 표시 업데이트)
+            self.after(200, self._refresh_printer_list)
+        except ImportError:
+            # pywin32 없이 레지스트리 방법 시도
+            try:
+                import subprocess
+                subprocess.run(
+                    ["rundll32", "printui.dll,PrintUIEntry",
+                     "/y", "/n", printer_name],
+                    timeout=5)
+                self._cfg["net_printer_name"] = printer_name
+                config.save_config(self._cfg)
+                self._net_printer_status_var.set(f"✅ 기본 프린터 설정 완료: {printer_name}")
+                self.after(200, self._refresh_printer_list)
+            except Exception as e:
+                self._net_printer_status_var.set(f"❌ 설정 실패: {str(e)[:60]}")
+        except Exception as e:
+            self._net_printer_status_var.set(f"❌ 설정 실패: {str(e)[:60]}")
 
     def _test_net_printer(self):
         """네트워크 프린터 연결 테스트 (ping)"""
@@ -3166,7 +3264,7 @@ class App(tk.Tk):
                 summary_mode=mode_label,
             )
             # 회의목록 갱신
-            self._load_meeting_list()
+            self._refresh_list()
             if messagebox.askyesno("저장 완료",
                                    f"회의록이 저장되었습니다.\n\n{out_path}\n\n파일 위치를 탐색기에서 열겠습니까?"):
                 import file_manager as fm

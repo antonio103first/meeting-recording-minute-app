@@ -19,13 +19,12 @@ def get_default_base_name() -> str:
 
 
 def save_stt_text(text: str, save_dir: str, file_name: str) -> tuple:
-    """STT 변환본을 .md 파일로 저장"""
+    """STT 변환본을 .txt 파일로 저장"""
     try:
         path = Path(save_dir)
         path.mkdir(parents=True, exist_ok=True)
-        # .md 확장자로 저장 (이전 .txt도 허용)
         stem = file_name if not file_name.endswith((".txt", ".md")) else Path(file_name).stem
-        out = path / (stem + ".md")
+        out = path / (stem + ".txt")
         out.write_text(text, encoding="utf-8")
         return True, str(out)
     except Exception as e:
