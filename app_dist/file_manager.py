@@ -228,24 +228,102 @@ def print_file(file_path: str) -> tuple:
 
 def export_pdf(md_text: str, out_path: str, title: str = "회의록") -> tuple:
     """
-    Markdown → PDF 변환 (F-02).
-    방법 1: weasyprint (설치된 경우)
-    방법 2: 폴백 — HTML 파일 저장 후 안내 메시지
+    Markdown → PDF 변환.
+    방법 1: fpdf2 + 맑은 고딕 (한글 지원, PyInstaller 호환)
+    방법 2: weasyprint (설치된 경우)
+    방법 3: 폴백 — HTML 파일 저장
     """
+    # ── 방법 1: fpdf2 ─────────────────────────────────────
+    try:
+        from fpdf import FPDF  # type: ignore
+
+        # 한글 폰트 경로 탐색 (Windows 시스템 폰트)
+        _font_candidates = [
+            r"C:\Windows\Fonts\malgun.ttf",       # 맑은 고딕
+            r"C:\Windows\Fonts\malgunbd.ttf",     # 맑은 고딕 Bold
+            r"C:\Windows\Fonts\NanumGothic.ttf",  # 나눔고딕 (설치된 경우)
+        ]
+        _font_path = next((p for p in _font_candidates if os.path.exists(p)), None)
+
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_page()
+        pdf.set_margins(20, 20, 20)
+
+        if _font_path:
+            pdf.add_font("KR", style="",  fname=_font_path)
+            pdf.add_font("KR", style="B", fname=_font_path)
+            _fam = "KR"
+        else:
+            _fam = "Helvetica"
+
+        # 제목
+        pdf.set_font(_fam, style="B", size=16)
+        pdf.cell(0, 12, title, ln=True, align="C")
+        pdf.ln(4)
+
+        # Markdown → 줄별 렌더링
+        import re as _re
+        for raw in md_text.split("\n"):
+            line = raw.rstrip()
+
+            # 헤더 처리 (# ~ ###)
+            h = _re.match(r'^(#{1,3})\s+(.*)', line)
+            if h:
+                level = len(h.group(1))
+                text  = h.group(2).strip()
+                size  = 14 - (level - 1) * 2  # 14 / 12 / 10
+                pdf.ln(2)
+                pdf.set_font(_fam, style="B", size=size)
+                pdf.multi_cell(0, 7, text)
+                pdf.ln(1)
+                continue
+
+            # 굵게 **text** → 볼드 처리 (간략화: 마커 제거 후 볼드)
+            if _re.search(r'\*\*', line):
+                line = _re.sub(r'\*\*(.*?)\*\*', r'\1', line)
+                pdf.set_font(_fam, style="B", size=10)
+            else:
+                pdf.set_font(_fam, style="", size=10)
+
+            # 이탤릭 제거
+            line = _re.sub(r'\*(.*?)\*', r'\1', line)
+
+            # 불릿 리스트
+            if _re.match(r'^\s*[-*]\s+', line):
+                line = _re.sub(r'^\s*[-*]\s+', '• ', line)
+
+            if line.strip():
+                pdf.multi_cell(0, 6, line)
+            else:
+                pdf.ln(3)
+
+        out_path = str(Path(out_path).with_suffix(".pdf"))
+        pdf.output(out_path)
+        return True, out_path
+
+    except ImportError:
+        pass  # fpdf2 미설치 → 다음 방법 시도
+    except Exception as e:
+        pass  # fpdf2 오류 → 다음 방법 시도
+
+    # ── 방법 2: weasyprint ────────────────────────────────
     try:
         import weasyprint  # type: ignore
         html = convert_md_to_html(md_text, title)
         weasyprint.HTML(string=html).write_pdf(out_path)
         return True, out_path
     except ImportError:
-        # weasyprint 미설치 시 HTML로 저장하고 안내
-        html_path = str(Path(out_path).with_suffix(".html"))
-        ok, msg = save_as_html(md_text, html_path, title)
-        if ok:
-            return True, html_path  # HTML로 저장 성공
-        return False, "PDF 변환 실패 (weasyprint 미설치, HTML로 대체 저장도 실패)"
-    except Exception as e:
-        return False, f"PDF 변환 실패: {e}"
+        pass
+    except Exception:
+        pass
+
+    # ── 방법 3: HTML 폴백 ─────────────────────────────────
+    html_path = str(Path(out_path).with_suffix(".html"))
+    ok, msg = save_as_html(md_text, html_path, title)
+    if ok:
+        return True, html_path
+    return False, "PDF 변환 실패 (fpdf2·weasyprint 미설치, HTML로 대체 저장도 실패)"
 
 
 def print_to_network(file_path: str, printer_ip: str,

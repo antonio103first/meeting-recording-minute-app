@@ -63,6 +63,7 @@ jobs:
             --hidden-import "openai" `
             --hidden-import "requests" `
             --hidden-import "markdown" `
+            --hidden-import "fpdf" `
             --hidden-import "tkinter" `
             --hidden-import "tkinter.ttk" `
             --hidden-import "sqlite3" `

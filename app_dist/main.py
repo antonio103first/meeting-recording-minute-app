@@ -147,6 +147,19 @@ class App(tk.Tk):
         style.configure("TProgressbar", troughcolor=BORDER,
                         background=ACCENT, thickness=12)
 
+        # 회의목록 내 분리뷰 탭 — 선택 시 다른 탭보다 크게 강조
+        style.configure("Detail.TNotebook", background=CARD_BG, borderwidth=0)
+        style.configure("Detail.TNotebook.Tab",
+                        font=("맑은 고딕", 10),
+                        padding=[14, 7],
+                        background="#DDE3EA",
+                        foreground=TEXT)
+        style.map("Detail.TNotebook.Tab",
+                  background=[("selected", ACCENT)],
+                  foreground=[("selected", WHITE)],
+                  font=[("selected", ("맑은 고딕", 11, "bold"))],
+                  padding=[("selected", [22, 11])])
+
     # ════════════════════════════════════════════════════
     # 탭 1 : 녹음/변환
     # ════════════════════════════════════════════════════
@@ -447,7 +460,7 @@ class App(tk.Tk):
                   self._delete_meeting, w=10).pack(side="left", padx=4)
 
         # 요약 / STT 분리 탭바
-        self._detail_nb = ttk.Notebook(bot_frame)
+        self._detail_nb = ttk.Notebook(bot_frame, style="Detail.TNotebook")
         self._detail_nb.pack(fill="both", expand=True, pady=(4, 0))
 
         self._sum_detail_frame  = tk.Frame(self._detail_nb, bg=CARD_BG)
@@ -2065,7 +2078,7 @@ class App(tk.Tk):
         dlg.geometry(f"{w}x{h}+{x}+{y}")
         dlg.configure(bg=CARD_BG)
 
-        nb = ttk.Notebook(dlg)
+        nb = ttk.Notebook(dlg, style="Detail.TNotebook")
         nb.pack(fill="both", expand=True, padx=10, pady=8)
 
         # 요약 탭

@@ -12,6 +12,7 @@ requests>=2.31.0
 anthropic
 openai>=1.0.0
 markdown>=3.5.0
+fpdf2>=2.7.0
 pyinstaller>=6.0.0
 
 # ── 선택적 의존성 (미설치 시 해당 기능만 비활성화) ─────────
