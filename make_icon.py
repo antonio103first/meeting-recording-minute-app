@@ -13,11 +13,15 @@ ico_path = os.path.join(base, "app_icon.ico")
 if not os.path.exists(png_path):
     raise FileNotFoundError("app_icon.png not found. Run setup_icon.py first.")
 
-img   = Image.open(png_path).convert("RGBA")
-sizes = [(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)]
-icons = [img.resize(s, Image.LANCZOS) for s in sizes]
+img = Image.open(png_path).convert("RGB")  # 투명도 제거 — Windows ICO 호환성
+s256 = img.resize((256,256), Image.LANCZOS)
+s128 = img.resize((128,128), Image.LANCZOS)
+s64  = img.resize((64,64),   Image.LANCZOS)
+s48  = img.resize((48,48),   Image.LANCZOS)
+s32  = img.resize((32,32),   Image.LANCZOS)
+s16  = img.resize((16,16),   Image.LANCZOS)
 
-icons[0].save(ico_path, format="ICO", sizes=sizes, append_images=icons[1:])
+s256.save(ico_path, format="ICO", append_images=[s128, s64, s48, s32, s16])
 print("PNG loaded: " + png_path)
 print("ICO saved: " + ico_path)
 print("Icon generation complete.")
