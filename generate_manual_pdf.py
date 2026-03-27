@@ -236,7 +236,9 @@ class ManualPDF(FPDF):
             # 점선
             self.set_draw_color(200, 200, 200)
             self.set_line_width(0.2)
-            self.dashed_line(90, y + 5, W - 36, y + 5, 1, 1)
+            self.set_dash_pattern(dash=1, gap=1)
+            self.line(90, y + 5, W - 36, y + 5)
+            self.set_dash_pattern()
             self.set_text_color(*BLACK)
 
         y = 42
@@ -372,16 +374,16 @@ class ManualPDF(FPDF):
     def code_block(self, text):
         self.set_fill_color(*DGRAY)
         lines = text.strip().split('\n')
-        h = len(lines) * 6 + 8
+        h = len(lines) * 6.5 + 9
         cy = self.get_y()
         self.rect(20, cy, W - 40, h, 'F')
-        self.set_font('Courier', '', 8.5)
+        self.set_font('KR', '', 8.5)
         self.set_text_color(*WHITE)
         self.set_xy(26, cy + 4)
         for line in lines:
             self.set_x(26)
-            self.cell(W - 46, 6, line)
-            self.ln(6)
+            self.cell(W - 46, 6.5, line)
+            self.ln(6.5)
         self.set_text_color(*BLACK)
         self.set_font('KR', '', 9.5)
         self.ln(4)
@@ -554,19 +556,19 @@ def build_pdf(font_path, font_bold_path):
         'Invoke URL 및 Secret Key 복사',
     ])
     pdf.info_box_auto(
-        '⚠  NAVER 계정 이메일/비밀번호가 아닌 Invoke URL과 Secret Key를 입력해야 합니다.',
+        '[주의]  NAVER 계정 이메일/비밀번호가 아닌 Invoke URL과 Secret Key를 입력해야 합니다.',
         WARN_BG, WARN_BR
     )
     pdf.sub_header(2, '앱에 입력')
     pdf.numbered_list([
-        '앱 실행 → 설정(⚙) 탭 클릭',
+        '앱 실행 → 설정 탭 클릭',
         'CLOVA Speech API 설정 영역에 Invoke URL, Secret Key 입력',
         '저장 버튼 클릭',
-        '연결 테스트 버튼으로 ✅ 확인',
+        '연결 테스트 버튼으로 [OK] 확인',
         '기본 STT 엔진을 CLOVA Speech (권장)으로 선택',
     ])
     pdf.info_box_auto(
-        '✓  연결 테스트에서 "연결 성공"이 표시되면 설정 완료입니다.',
+        '[완료]  연결 테스트에서 "연결 성공"이 표시되면 설정 완료입니다.',
         SUCC_BG, SUCC_BR
     )
 
@@ -580,15 +582,15 @@ def build_pdf(font_path, font_bold_path):
         '생성된 API 키 복사',
     ])
     pdf.info_box_auto(
-        'ℹ  Gemini API는 무료 플랜으로도 일반적인 회의 요약에 충분합니다. '
+        '[안내]  Gemini API는 무료 플랜으로도 일반적인 회의 요약에 충분합니다. '
         'STT에 CLOVA를 사용하더라도 Gemini 키는 반드시 설정해야 합니다.',
         INFO_BG, INFO_BR
     )
     pdf.sub_header(2, '앱에 입력')
     pdf.numbered_list([
-        '설정(⚙) 탭 → Gemini API 설정 영역',
+        '설정 탭 → Gemini API 설정 영역',
         'API 키 입력 → 저장',
-        '연결 테스트 버튼으로 ✅ 확인',
+        '연결 테스트 버튼으로 [OK] 확인',
     ])
 
     # ── 1-5 Google Drive ───────────────────────────────────────
@@ -604,12 +606,12 @@ def build_pdf(font_path, font_bold_path):
     ])
     pdf.sub_header(2, '앱에 연동')
     pdf.numbered_list([
-        '설정(⚙) 탭 → Google Drive 설정 → JSON 파일 선택 → 등록',
-        '🔐 Google 인증 (브라우저) 클릭 → 브라우저에서 계정 로그인 및 권한 승인',
-        '🚀 두 폴더 한번에 생성 클릭 → 폴더 자동 생성 및 ID 저장',
+        '설정 탭 → Google Drive 설정 → JSON 파일 선택 → 등록',
+        '[Google 인증] 버튼 클릭 → 브라우저에서 계정 로그인 및 권한 승인',
+        '[두 폴더 한번에 생성] 버튼 클릭 → 폴더 자동 생성 및 ID 저장',
     ])
     pdf.info_box_auto(
-        'ℹ  Google Drive 연동은 선택사항입니다. 로컬 PC에만 저장해도 모든 기능을 사용할 수 있습니다.',
+        '[안내]  Google Drive 연동은 선택사항입니다. 로컬 PC에만 저장해도 모든 기능을 사용할 수 있습니다.',
         INFO_BG, INFO_BR
     )
 
@@ -618,8 +620,8 @@ def build_pdf(font_path, font_bold_path):
     pdf.section_header('1-6.  설치 완료 확인')
     pdf.checklist_box('설치 완료 체크리스트', [
         '앱이 정상 실행된다',
-        'CLOVA Speech 연결 테스트 ✅ 확인',
-        'Gemini API 연결 테스트 ✅ 확인',
+        'CLOVA Speech 연결 테스트 [OK] 확인',
+        'Gemini API 연결 테스트 [OK] 확인',
         '설정 탭에서 STT 엔진이 CLOVA Speech로 선택됨',
     ], SUCC_BG, SUCC_BR)
     pdf.ln(4)
@@ -627,7 +629,7 @@ def build_pdf(font_path, font_bold_path):
     pdf.set_font('KR', 'B', 10)
     pdf.set_text_color(*ERR_BR)
     pdf.set_x(20)
-    pdf.cell(0, 7, '⚠  문제가 발생했다면:')
+    pdf.cell(0, 7, '[!]  문제가 발생했다면:')
     pdf.ln(8)
     pdf.set_text_color(*BLACK)
     pdf.draw_table(
@@ -668,12 +670,12 @@ def build_pdf(font_path, font_bold_path):
     pdf.add_page()
     pdf.section_header('2-1.  녹음 및 변환 방법')
     pdf.sub_header(1, '음성 입력')
-    pdf.body_text('• 실시간 녹음: 마이크 선택 → ● 녹음 시작 → ■ 중지 (MP3 자동 저장)\n'
-                  '• 기존 파일: 📂 파일 선택 → MP3, WAV, M4A, MP4, OGG, FLAC 지원')
+    pdf.body_text('• 실시간 녹음: 마이크 선택 → [녹음 시작] → [중지] (MP3 자동 저장)\n'
+                  '• 기존 파일: [파일 선택] → MP3, WAV, M4A, MP4, OGG, FLAC 지원')
     pdf.sub_header(2, '화자 수 설정')
     pdf.body_text('변환 전 실제 참석자 수를 설정합니다 (1~8명 또는 자동 감지).')
     pdf.sub_header(3, '변환 시작')
-    pdf.body_text('▶ 변환 시작 버튼 클릭 → 설정에서 지정한 STT 엔진과 요약 방식이 자동 적용됩니다.')
+    pdf.body_text('[변환 시작] 버튼 클릭 → 설정에서 지정한 STT 엔진과 요약 방식이 자동 적용됩니다.')
     pdf.ln(2)
     pdf.code_block(
         'STT 변환 (진행률 표시)\n'
@@ -685,7 +687,7 @@ def build_pdf(font_path, font_bold_path):
         '로컬 저장 + Drive 업로드 (설정 시)'
     )
     pdf.info_box_auto(
-        'ℹ  기본 STT 엔진 및 요약 방식은 설정(⚙) 탭 → 기본 요약 방식에서 미리 지정하세요.',
+        '[안내]  기본 STT 엔진 및 요약 방식은 설정 탭 → 기본 요약 방식에서 미리 지정하세요.',
         INFO_BG, INFO_BR
     )
 
@@ -694,19 +696,19 @@ def build_pdf(font_path, font_bold_path):
     pdf.section_header('2-2.  STT 파일로 즉시 요약 (영역 B)')
     pdf.body_text('STT 변환을 건너뛰고 기존 .txt 파일로 바로 요약할 수 있습니다.')
     pdf.numbered_list([
-        '📂 STT 파일 선택 버튼 클릭 → .txt 파일 선택',
+        '[STT 파일 선택] 버튼 클릭 → .txt 파일 선택',
         '(선택) 커스텀 프롬프트 입력란에 특별 지시사항 입력',
-        '▶ 회의록 변환 버튼 클릭',
+        '[회의록 변환] 버튼 클릭',
     ])
     pdf.info_box_auto(
-        'ℹ  이미 STT 변환된 텍스트 파일이 있거나, 직접 작성한 회의 메모를 AI로 요약할 때 유용합니다.',
+        '[안내]  이미 STT 변환된 텍스트 파일이 있거나, 직접 작성한 회의 메모를 AI로 요약할 때 유용합니다.',
         INFO_BG, INFO_BR
     )
 
     # ── 2-3 요약 방식 ─────────────────────────────────────────
     pdf.add_page()
     pdf.section_header('2-3.  요약 방식 선택하기')
-    pdf.body_text('설정(⚙) 탭 → 기본 요약 방식에서 5가지 방식 중 선택합니다.')
+    pdf.body_text('설정 탭 → 기본 요약 방식에서 5가지 방식 중 선택합니다.')
     pdf.draw_table(
         ['방식', '특징 및 적합한 상황'],
         [
@@ -719,7 +721,7 @@ def build_pdf(font_path, font_bold_path):
         col_widths=[40, 130]
     )
     pdf.info_box_auto(
-        'ℹ  커스텀 방식은 영역 A의 변환 전 또는 영역 B의 커스텀 프롬프트 입력란에서 '
+        '[안내]  커스텀 방식은 영역 A의 변환 전 또는 영역 B의 커스텀 프롬프트 입력란에서 '
         '별도 지시사항을 직접 입력할 수 있습니다.',
         INFO_BG, INFO_BR
     )
@@ -731,18 +733,18 @@ def build_pdf(font_path, font_bold_path):
     pdf.draw_table(
         ['버튼', '기능'],
         [
-            ['👁  전체보기', '전체 회의록 팝업 표시 + 파일 직접 열기'],
-            ['🖨  출력·인쇄', '연결된 로컬 프린터로 회의록 인쇄'],
-            ['✏  화자이름', 'STT 결과의 [화자1], [화자2]를 실제 이름으로 변경'],
-            ['📤  공유 ▼', '이메일 공유 또는 클립보드 복사'],
-            ['📥  PDF 저장', '회의록을 PDF 파일로 저장 (한글 지원)'],
-            ['🗑  삭제', '목록에서 삭제 (원본 파일은 유지, DB에서만 제거)'],
+            ['[보기]  전체보기', '전체 회의록 팝업 표시 + 파일 직접 열기'],
+            ['[인쇄]  출력·인쇄', '연결된 로컬 프린터로 회의록 인쇄'],
+            ['[수정]  화자이름', 'STT 결과의 [화자1], [화자2]를 실제 이름으로 변경'],
+            ['[공유]  공유', '이메일 공유 또는 클립보드 복사'],
+            ['[PDF]  PDF 저장', '회의록을 PDF 파일로 저장 (한글 지원)'],
+            ['[삭제]  삭제', '목록에서 삭제 (원본 파일은 유지, DB에서만 제거)'],
         ],
         col_widths=[40, 130]
     )
     pdf.body_text('분리뷰 탭:')
-    pdf.body_text('  • 📋 회의록 요약 탭 — AI가 생성한 요약본 표시\n'
-                  '  • 📝 STT 원문 탭 — 음성 인식 원본 텍스트 표시', indent=24)
+    pdf.body_text('  • [요약] 회의록 요약 탭 — AI가 생성한 요약본 표시\n'
+                  '  • [원문] STT 원문 탭 — 음성 인식 원본 텍스트 표시', indent=24)
 
     # ── 2-5 STT 엔진 비교 ────────────────────────────────────
     pdf.add_page()
@@ -751,9 +753,9 @@ def build_pdf(font_path, font_bold_path):
         ['항목', 'CLOVA Speech (권장)', 'Gemini', 'ChatGPT (Whisper)'],
         [
             ['한국어 정확도', '★★★★★', '★★★★', '★★★★'],
-            ['화자 구분', '✅ 지원', '✅ 지원', '❌ 미지원'],
+            ['화자 구분', '[O] 지원', '[O] 지원', '[X] 미지원'],
             ['파일 크기 제한', '최대 1GB', '20MB (인라인)', '25MB'],
-            ['장시간 처리', '제한 없음 ✅', '1시간 이내 권장', '30분 이내 권장'],
+            ['장시간 처리', '제한 없음 [O]', '1시간 이내 권장', '30분 이내 권장'],
             ['비용', '유료 (종량제)', '무료 (한도 내)', '유료'],
         ],
         col_widths=[38, 47, 38, 47]
@@ -781,13 +783,13 @@ def build_pdf(font_path, font_bold_path):
     pdf.section_header('2-6.  자주 묻는 질문 (사용편)')
     pdf.faq_item('회의록이 저장되는 위치는 어디인가요?',
         '기본 저장 경로: ~/Documents/Meeting recording/회의록(요약)/\n'
-        '설정(⚙) 탭 → PC 저장 폴더 설정에서 MP3 파일, STT 변환본, 요약 파일 각각의 경로를 변경할 수 있습니다.')
+        '설정 탭 → PC 저장 폴더 설정에서 MP3 파일, STT 변환본, 요약 파일 각각의 경로를 변경할 수 있습니다.')
     pdf.faq_item('화자 이름을 나중에 변경할 수 있나요?',
-        '네, 회의목록 탭에서 해당 회의를 선택한 후 ✏ 화자이름 버튼을 클릭하면 '
+        '네, 회의목록 탭에서 해당 회의를 선택한 후 [수정] 화자이름 버튼을 클릭하면 '
         '[화자1], [화자2] 등을 실제 이름으로 언제든 변경할 수 있습니다.')
     pdf.faq_item('Google Drive 업로드가 안 됩니다.',
-        '설정(⚙) 탭 → Google Drive 설정에서 "미연결" 상태를 확인하세요. '
-        '🔐 Google 인증 버튼을 클릭하여 재인증하면 해결됩니다.')
+        '설정 탭 → Google Drive 설정에서 "미연결" 상태를 확인하세요. '
+        '[Google 인증] 버튼을 클릭하여 재인증하면 해결됩니다.')
     pdf.faq_item('긴 회의 파일(1시간 이상)이 처리되지 않습니다.',
         'Gemini STT 엔진은 1시간 이상 파일에서 타임아웃이 발생할 수 있습니다. '
         '설정 탭에서 STT 엔진을 CLOVA Speech로 변경하면 시간 제한 없이 처리됩니다.')
