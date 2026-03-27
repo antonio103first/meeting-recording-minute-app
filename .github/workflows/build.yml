@@ -10,6 +10,8 @@ on:
 jobs:
   build-windows-exe:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: 소스코드 체크아웃

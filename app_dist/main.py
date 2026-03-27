@@ -2366,22 +2366,35 @@ class App(tk.Tk):
         webbrowser.open(f"mailto:?subject={subject}&body={body}")
 
     def _share_kakao(self, data: dict):
-        """💬 카카오톡 공유 — KakaoTalk PC URL 스킴"""
-        import urllib.parse
-        summary = data.get("summary_text", "")
-        title   = data.get("file_name", "회의록")
-        # 카카오톡 PC 공유 URL 스킴 (KakaoTalk 설치 필요)
-        msg = urllib.parse.quote(f"[{title}]\n\n{summary[:500]}", safe="")
-        url = f"kakaotalk://send?msg={msg}"
-        try:
-            webbrowser.open(url)
-        except Exception:
-            # 카카오톡 미설치 시 안내
+        """💬 카카오톡 공유 — MD → PDF 변환 후 파일 탐색기 오픈"""
+        summary_text = data.get("summary_text", "")
+        if not summary_text:
+            messagebox.showwarning("알림", "요약 내용이 없습니다.")
+            return
+
+        file_name = data.get("file_name", "회의록")
+        pdf_name  = f"{Path(file_name).stem}_회의록.pdf"
+        pdf_path  = str(Path(config.SUMMARY_SAVE_DIR) / pdf_name)
+
+        ok, result = fm.export_pdf(summary_text, pdf_path,
+                                   title=Path(file_name).stem)
+        if ok:
+            fm.open_file_in_explorer(result)
             messagebox.showinfo(
                 "카카오톡 공유",
-                "카카오톡 PC 버전이 설치되어 있지 않거나\n"
-                "URL 스킴을 지원하지 않는 환경입니다.\n\n"
-                "클립보드 복사 후 카카오톡에 직접 붙여넣기 해주세요.")
+                f"PDF 파일이 생성되었습니다.\n\n"
+                f"파일명: {Path(result).name}\n\n"
+                "파일 탐색기에서 PDF 파일을\n"
+                "카카오톡 채팅창으로 드래그하여 전송하세요.")
+        else:
+            # PDF 변환 실패 시 클립보드 복사 폴백
+            self.clipboard_clear()
+            self.clipboard_append(summary_text)
+            messagebox.showinfo(
+                "카카오톡 공유",
+                f"PDF 변환 실패: {result}\n\n"
+                "회의록 텍스트를 클립보드에 복사했습니다.\n"
+                "카카오톡에 붙여넣기(Ctrl+V) 해주세요.")
 
     def _share_explorer(self, data: dict):
         """📁 파일 탐색기에서 열기"""

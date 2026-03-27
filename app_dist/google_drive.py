@@ -81,6 +81,19 @@ def authenticate() -> tuple:
     if not CREDENTIALS_FILE.exists():
         return False, "OAuth 클라이언트 파일이 없습니다. 설정 탭에서 파일을 등록해주세요."
     try:
+        # credentials.json 클라이언트 유형 사전 검증
+        with open(CREDENTIALS_FILE, "r", encoding="utf-8") as f:
+            import json as _json
+            cred_data = _json.load(f)
+        if "web" in cred_data and "installed" not in cred_data:
+            return False, (
+                "OAuth 클라이언트 유형 오류\n\n"
+                "현재 'Web 애플리케이션' 유형으로 설정되어 있습니다.\n"
+                "Google Cloud Console에서 새 OAuth 클라이언트 ID를\n"
+                "『데스크톱 앱』 유형으로 생성 후 다시 등록해주세요.\n\n"
+                "경로: Cloud Console → API 및 서비스 → 사용자 인증 정보\n"
+                "→ OAuth 2.0 클라이언트 ID 만들기 → 데스크톱 앱"
+            )
         flow = InstalledAppFlow.from_client_secrets_file(
             str(CREDENTIALS_FILE), GOOGLE_SCOPES)
         creds = flow.run_local_server(port=0)
@@ -88,6 +101,19 @@ def authenticate() -> tuple:
             f.write(creds.to_json())
         return True, "Google Drive 인증 완료!"
     except Exception as e:
+        err = str(e)
+        if "invalid_client" in err or "unauthorized_client" in err:
+            return False, (
+                "OAuth 클라이언트 오류 (개발자 오류)\n\n"
+                "Google Cloud Console에서 OAuth 클라이언트 ID를\n"
+                "『데스크톱 앱』 유형으로 새로 생성해주세요.\n"
+                "(Android / Web 유형은 사용 불가)"
+            )
+        if "redirect_uri_mismatch" in err:
+            return False, (
+                "리디렉션 URI 불일치 오류\n\n"
+                "OAuth 클라이언트 유형이 『데스크톱 앱』인지 확인해주세요."
+            )
         return False, f"인증 실패: {e}"
 
 
