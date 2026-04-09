@@ -92,6 +92,7 @@ class App(tk.Tk):
         # 파이프라인 임시 저장
         self._pipeline_sum_mode    = "speaker"
         self._pipeline_ai_engine   = self._cfg.get("summary_engine", "gemini")  # "gemini" | "claude" | "chatgpt"
+        self._pipeline_company_name = ""  # IR 미팅 모드 전용: 혁신의숲 API 조회 기업명
         self._pipeline_stt_engine  = self._cfg.get("stt_engine", "gemini")      # "gemini" | "clova"
         self._pipeline_rename_spk  = False
         self._current_sum_path     = None
@@ -137,13 +138,15 @@ class App(tk.Tk):
         style.theme_use("clam")
         style.configure("TNotebook", background=BG, borderwidth=0)
         style.configure("TNotebook.Tab",
-                        font=("맑은 고딕", 10, "bold"),
-                        padding=[12, 8],
+                        font=("맑은 고딕", 9),
+                        padding=[10, 6],
                         background="#DDE3EA",
                         foreground=TEXT)
         style.map("TNotebook.Tab",
                   background=[("selected", ACCENT)],
-                  foreground=[("selected", WHITE)])
+                  foreground=[("selected", WHITE)],
+                  font=[("selected", ("맑은 고딕", 12, "bold"))],
+                  padding=[("selected", [16, 10])])
         style.configure("TProgressbar", troughcolor=BORDER,
                         background=ACCENT, thickness=12)
 
@@ -264,7 +267,7 @@ class App(tk.Tk):
         spk_row.pack(fill="x", pady=(0, 2))
         tk.Label(spk_row, text="화자 수:", font=FONT_BODY,
                  bg=CARD_BG, fg=TEXT).pack(side="left")
-        self._spk_var = tk.IntVar(value=2)
+        self._spk_var = tk.IntVar(value=0)
         for v, t in [(1,"1명"), (2,"2명"), (3,"3명"), (4,"4명"),
                      (5,"5명"), (6,"6명"), (7,"7명"), (8,"8명"), (0,"자동")]:
             tk.Radiobutton(spk_row, text=t, variable=self._spk_var, value=v,
@@ -300,6 +303,23 @@ class App(tk.Tk):
             bg="#FAFAFA", relief="solid", bd=1)
         self._stt_box.pack(fill="x")
 
+        # 이전 회의록 참조 링크 (비교 분석용)
+        obs_header = tk.Frame(stt_card, bg=CARD_BG)
+        obs_header.pack(fill="x", pady=(10, 2))
+        tk.Label(obs_header, text="📎 이전 회의록 참조 (Obsidian 링크, 비교 분석용)",
+                 font=FONT_BODY, bg=CARD_BG, fg=TEXT).pack(side="left")
+        self._btn_obs_add = self._btn(obs_header, "+ 추가", "#2980B9",
+                                      self._obs_link_add, w=6)
+        self._btn_obs_add.pack(side="right", padx=2)
+
+        # 링크 목록 프레임 (스크롤 가능)
+        self._obs_links_frame = tk.Frame(stt_card, bg=CARD_BG)
+        self._obs_links_frame.pack(fill="x")
+        self._obs_link_vars = []   # list of StringVar
+        self._obs_link_rows = []   # list of Frame (for removal)
+        # 초기 1개 행 추가
+        self._obs_link_add()
+
         # ─ 섹션 3: 회의록 요약 결과 ─────────────────────
         self._card(inner, "📋 회의록 요약 결과").pack(fill="x", **pad)
         sum_card = self._last_card
@@ -330,20 +350,6 @@ class App(tk.Tk):
                  text="← 설정 탭의 커스텀 프롬프트를 적용해 재요약",
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left")
 
-        # ─ 섹션 4: 핵심 지표 ────────────────────────────
-        self._card(inner, "📊 핵심 지표").pack(fill="x", **pad)
-        metrics_card = self._last_card
-
-        self._metrics_prog = ttk.Progressbar(metrics_card, maximum=100, length=500)
-        self._metrics_prog.pack(pady=2)
-        self._metrics_status_var = tk.StringVar(value="요약 완료 후 자동 추출됩니다.")
-        tk.Label(metrics_card, textvariable=self._metrics_status_var,
-                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack()
-
-        self._metrics_box = scrolledtext.ScrolledText(
-            metrics_card, height=6, font=FONT_BODY, wrap="word",
-            bg="#FAFAFA", relief="solid", bd=1, state="disabled")
-        self._metrics_box.pack(fill="x")
 
         # ════ 영역 B: 회의록 추가 변환 (STT 파일 → 회의록) ════
         ttk.Separator(inner).pack(fill="x", padx=20, pady=10)
@@ -520,13 +526,15 @@ class App(tk.Tk):
         self._default_sum_mode_var = tk.StringVar(
             value=self._cfg.get("summary_mode", "speaker"))
         for label, val in [
-            ("화자 중심 — 발화자별 발언 구조화", "speaker"),
-            ("주제 중심 — 논의 주제별 구조화", "topic"),
-            ("회의양식 — K-Run Ventures 공식 회의록 포맷", "formal_md"),
+            ("주간회의 — K-Run Ventures 파트너 주간회의록", "speaker"),
+            ("다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
+            ("회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리", "formal_md"),
+            ("IR 미팅회의록 ★신규★ — 피투자사 IR 미팅 전문 정리", "ir_md"),
             ("강의 요약 — 학습/세미나 특화", "lecture_md"),
-            ("흐름 중심 ★신규★ — 회의 전개 맥락·인과관계 서술", "flow"),
+            ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
+            ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
         ]:
-            fg = SUCCESS if val == "flow" else TEXT
+            fg = SUCCESS if val == "ir_md" else TEXT
             tk.Radiobutton(
                 sm_card, text=label,
                 variable=self._default_sum_mode_var, value=val,
@@ -934,6 +942,45 @@ class App(tk.Tk):
         tk.Label(appdata_row, text=str(config.APP_DATA_DIR),
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left")
 
+        # ─ Obsidian 연동 설정 ────────────────────────────
+        self._card(inner, "📓 Obsidian 연동 설정").pack(fill="x", **pad)
+        obs_card = self._last_card
+
+        tk.Label(obs_card,
+                 text="회의록 완료 후 Obsidian 볼트 폴더에 자동으로 노트를 생성합니다.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(0, 6))
+
+        # 자동 저장 체크박스
+        self._obs_auto_var = tk.BooleanVar(value=self._cfg.get("obsidian_auto_save", True))
+        tk.Checkbutton(obs_card,
+                       text="✅ 회의록 완료 후 Obsidian에 자동 저장",
+                       variable=self._obs_auto_var, bg=CARD_BG, font=FONT_BODY,
+                       activebackground=CARD_BG,
+                       command=lambda: self._save_obs_setting()).pack(anchor="w", pady=(0, 4))
+
+        # Obsidian 경로 설정
+        obs_path_row = tk.Frame(obs_card, bg=CARD_BG)
+        obs_path_row.pack(fill="x", pady=2)
+        tk.Label(obs_path_row, text="저장 폴더:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=10, anchor="w").pack(side="left")
+        self._obs_dir_var = tk.StringVar(
+            value=self._cfg.get("obsidian_meeting_dir",
+                                r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\5. 회의록"))
+        tk.Entry(obs_path_row, textvariable=self._obs_dir_var,
+                 font=FONT_SMALL, width=38, state="readonly").pack(side="left", padx=4)
+
+        def _browse_obs():
+            d = filedialog.askdirectory(title="Obsidian 회의록 폴더 선택",
+                                        initialdir=self._obs_dir_var.get())
+            if d:
+                self._obs_dir_var.set(d)
+                self._save_obs_setting()
+        self._btn(obs_path_row, "📂 찾아보기", ACCENT, _browse_obs, w=10).pack(side="left", padx=2)
+
+        tk.Label(obs_card,
+                 text="※ 저장 파일명 형식: YYMMDD 기업명 IR.md  (예: 260408 서메어 IR.md)",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(4, 0))
+
         # ─ 로컬 프린터 설정 ──────────────────────────────
         self._card(inner, "🖨 로컬 프린터 설정").pack(fill="x", **pad)
         net_card = self._last_card
@@ -1234,6 +1281,54 @@ class App(tk.Tk):
     # 자동화 파이프라인
     # ════════════════════════════════════════════════════
 
+    # ── Obsidian 이전 회의록 링크 관리 ──────────────────────────────
+    def _obs_link_add(self):
+        """이전 회의록 Obsidian 링크 행 추가"""
+        var = tk.StringVar()
+        row = tk.Frame(self._obs_links_frame, bg=CARD_BG)
+        row.pack(fill="x", pady=1)
+
+        entry = tk.Entry(row, textvariable=var, font=FONT_SMALL, width=60,
+                         bg="#FAFAFA", relief="solid", bd=1)
+        entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
+
+        def _browse():
+            path = filedialog.askopenfilename(
+                title="Obsidian 이전 회의록 선택",
+                filetypes=[("Markdown 파일", "*.md"), ("텍스트 파일", "*.txt"), ("모든 파일", "*.*")],
+            )
+            if path:
+                var.set(path)
+
+        def _remove():
+            row.destroy()
+            if var in self._obs_link_vars:
+                idx = self._obs_link_vars.index(var)
+                self._obs_link_vars.pop(idx)
+                self._obs_link_rows.pop(idx)
+
+        self._btn(row, "📂", "#7F8C8D", _browse, w=3).pack(side="left", padx=2)
+        self._btn(row, "✕", DANGER, _remove, w=3).pack(side="left", padx=2)
+
+        self._obs_link_vars.append(var)
+        self._obs_link_rows.append(row)
+
+    def _get_obsidian_notes_content(self) -> str:
+        """입력된 Obsidian 링크 경로에서 파일 내용을 읽어 문자열로 반환"""
+        parts = []
+        for var in self._obs_link_vars:
+            path = var.get().strip()
+            if not path:
+                continue
+            try:
+                with open(path, encoding="utf-8") as f:
+                    content = f.read().strip()
+                fname = os.path.basename(path)
+                parts.append(f"### [{fname}]\n{content}")
+            except Exception as e:
+                parts.append(f"### [{path}]\n⚠ 파일 읽기 실패: {e}")
+        return "\n\n".join(parts)
+
     def _import_txt_and_summarize(self):
         """[📎 TXT 파일 첨부] 버튼 → STT 결과 txt 불러와 요약 파이프라인 시작"""
         if self._processing:
@@ -1285,7 +1380,7 @@ class App(tk.Tk):
         self.update_idletasks()
         x = self.winfo_x() + self.winfo_width() // 2 - 250
         y = self.winfo_y() + self.winfo_height() // 2 - 230
-        dlg.geometry(f"500x470+{x}+{y}")
+        dlg.geometry(f"520x540+{x}+{y}")
         dlg.configure(bg=CARD_BG)
 
         tk.Label(dlg, text="요약 옵션 선택", font=FONT_H2,
@@ -1299,21 +1394,28 @@ class App(tk.Tk):
                               bg=CARD_BG, fg=TEXT, padx=12, pady=6)
         frm1.pack(fill="x", padx=20, pady=4)
         sum_mode_var = tk.StringVar(value=self._pipeline_sum_mode)
+        _FONT_OPT = ("맑은 고딕", 11)
         tk.Radiobutton(frm1, text="화자 중심 — 참석자별 발언 정리",
                        variable=sum_mode_var, value="speaker",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm1, text="주제 중심 — 안건별 논의 정리",
+                       bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
+        tk.Radiobutton(frm1, text="다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹",
                        variable=sum_mode_var, value="topic",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm1, text="회의양식 — K-Run Ventures 공식 회의록 포맷",
+                       bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
+        tk.Radiobutton(frm1, text="회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리",
                        variable=sum_mode_var, value="formal_md",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm1, text="강의 요약 (MD) — 소주제별 논리적 정리, 신앙/업무 강의 자동 적응",
+                       bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
+        tk.Radiobutton(frm1, text="IR 미팅회의록 ★신규★ — 피투자사 IR 미팅 전문 정리",
+                       variable=sum_mode_var, value="ir_md",
+                       bg=CARD_BG, font=_FONT_OPT, fg=SUCCESS, activebackground=CARD_BG).pack(anchor="w", pady=1)
+        tk.Radiobutton(frm1, text="강의 요약 — 소주제별 논리적 정리, 신앙/업무 강의 자동 적응",
                        variable=sum_mode_var, value="lecture_md",
-                       bg=CARD_BG, font=FONT_BODY, activebackground=CARD_BG).pack(anchor="w")
-        tk.Radiobutton(frm1, text="흐름 중심 (MD) ★신규★ — 회의 전개 맥락·인과관계 서술",
+                       bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
+        tk.Radiobutton(frm1, text="네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리",
                        variable=sum_mode_var, value="flow",
-                       bg=CARD_BG, font=FONT_BODY, fg=SUCCESS, activebackground=CARD_BG).pack(anchor="w")
+                       bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
+        tk.Radiobutton(frm1, text="전화통화 메모 — 통화 내용 주제별 요약 + 질의응답",
+                       variable=sum_mode_var, value="phone",
+                       bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
 
         # AI 엔진
         frm_ai = tk.LabelFrame(dlg, text="  AI 요약 엔진  ", font=FONT_BODY,
@@ -1343,15 +1445,29 @@ class App(tk.Tk):
             self._pipeline_sum_mode  = sum_mode_var.get()
             self._pipeline_ai_engine = ai_var.get()
             dlg.destroy()
+            # IR 미팅 모드 선택 시 기업명 입력 (혁신의숲 API 조회용)
+            if self._pipeline_sum_mode == "ir_md":
+                name = simpledialog.askstring(
+                    "기업명 입력",
+                    "혁신의숲 조회 기업명을 입력하세요:\n(정확한 법인명 입력 권장, 빈칸 시 API 조회 생략)",
+                    parent=self,
+                )
+                self._pipeline_company_name = (name or "").strip()
+            else:
+                self._pipeline_company_name = ""
 
         def _cancel():
             dlg.destroy()
 
         ttk.Separator(dlg).pack(fill="x", padx=20, pady=8)
         btn_row = tk.Frame(dlg, bg=CARD_BG)
-        btn_row.pack(pady=8)
-        self._btn(btn_row, "📋 요약 시작", "#8E44AD", _confirm, w=16).pack(side="left", padx=8)
-        self._btn(btn_row, "취소", TEXT_LIGHT, _cancel, w=8).pack(side="left", padx=6)
+        btn_row.pack(pady=10)
+        b_start = self._btn(btn_row, "📋 요약 시작", "#8E44AD", _confirm, w=20)
+        b_start.config(font=("맑은 고딕", 13, "bold"), pady=12)
+        b_start.pack(side="left", padx=10)
+        b_cancel = self._btn(btn_row, "취소", TEXT_LIGHT, _cancel, w=12)
+        b_cancel.config(font=("맑은 고딕", 12), pady=12)
+        b_cancel.pack(side="left", padx=8)
         dlg.protocol("WM_DELETE_WINDOW", _cancel)
         self.wait_window(dlg)
 
@@ -1401,9 +1517,21 @@ class App(tk.Tk):
         self._pipeline_stt_engine = self._cfg.get("stt_engine", "clova")
         self._pipeline_rename_spk = False
 
+        # IR 미팅 모드인 경우 기업명 입력 (혁신의숲 API 조회용)
+        if self._pipeline_sum_mode == "ir_md":
+            name = simpledialog.askstring(
+                "기업명 입력",
+                "혁신의숲 조회 기업명을 입력하세요:\n(정확한 법인명 입력 권장, 빈칸 시 API 조회 생략)",
+                parent=self,
+            )
+            self._pipeline_company_name = (name or "").strip()
+        else:
+            self._pipeline_company_name = ""
+
         mode_label_map = {
-            "speaker": "화자 중심", "topic": "주제 중심",
-            "formal_md": "회의양식", "lecture_md": "강의 요약", "flow": "흐름 중심"
+            "speaker": "주간회의", "topic": "다자간 협의",
+            "formal_md": "회의록(업무)", "ir_md": "IR미팅회의록",
+            "lecture_md": "강의요약", "flow": "네트워킹(티타임)", "phone": "전화통화메모"
         }
         engine_label_map = {
             "gemini": "Gemini", "claude": "Claude", "chatgpt": "ChatGPT"
@@ -1557,6 +1685,8 @@ class App(tk.Tk):
         if self._cfg.get("custom_prompt_enabled") and self._cfg.get("custom_prompt_text"):
             custom_inst = self._cfg["custom_prompt_text"]
 
+        prev_notes = self._get_obsidian_notes_content()
+
         def run_sum():
             if self._pipeline_ai_engine == "claude":
                 cl_key = self._cfg.get("claude_api_key", "")
@@ -1583,6 +1713,8 @@ class App(tk.Tk):
                     summary_mode=self._pipeline_sum_mode,
                     cancel_event=self._cancel_event,
                     custom_instruction=custom_inst,
+                    company_name=self._pipeline_company_name,
+                    prev_notes=prev_notes,
                 )
             self.after(0, lambda: self._on_pipeline_summary_done(ok, text, stt_text))
 
@@ -1720,7 +1852,7 @@ class App(tk.Tk):
     def _finalize_save(self, mp3_path, stt_path, sum_path, save_name,
                        stt_text, text, msgs,
                        drive_mp3_link, drive_stt_link, drive_sum_link):
-        """DB 저장 + 완료 팝업"""
+        """DB 저장 + Obsidian 저장 + 완료 팝업"""
         # DB 저장
         if mp3_path or stt_path or sum_path:
             mid = database.save_meeting(
@@ -1739,6 +1871,11 @@ class App(tk.Tk):
             msgs.append(f"✅ DB 저장 완료 (ID: {mid})")
         self._refresh_list()
 
+        # Obsidian 노트 자동 생성
+        if text and self._cfg.get("obsidian_auto_save", True):
+            obs_result = self._save_obsidian_note(text, save_name)
+            msgs.append(obs_result)
+
         # 저장 상태 표시
         self._save_status_var.set(" | ".join(msgs))
 
@@ -1750,46 +1887,123 @@ class App(tk.Tk):
             result_lines += ["", "☁ Google Drive 링크:", drive_mp3_link or ""]
         messagebox.showinfo("완료", "\n".join(result_lines))
 
-        # ⑧ 핵심 지표 자동 추출
-        self._start_metrics_extraction(text)
+    def _extract_counterpart_name(self, summary_text: str) -> str:
+        """회의록 본문 헤더 테이블에서 상대방/기업명을 자동 추출"""
+        import re as _re
+        mode = self._pipeline_sum_mode
 
-    def _start_metrics_extraction(self, summary_text: str):
-        """⑧ 핵심 지표 자동 추출 (요약 완료 후 자동 실행)"""
-        api_key = self._cfg.get("gemini_api_key", "")
-        self._metrics_prog["value"] = 0
-        self._metrics_status_var.set("핵심 지표 추출 중...")
-        self._metrics_box.config(state="normal")
-        self._metrics_box.delete("1.0", "end")
-        self._metrics_box.config(state="disabled")
+        # 모드별 추출 대상 필드 (마크다운 테이블 행 패턴)
+        # 형식: | 필드명 | 값 |
+        field_patterns = {
+            "formal_md": [
+                r'\|\s*대\s*상\s*기\s*업\s*\|\s*(.+?)\s*\|',          # 대 상 기 업
+            ],
+            "topic": [
+                r'\|\s*참\s*석\s*기\s*관\s*\|\s*(.+?)\s*\|',          # 참 석 기 관
+                r'\|\s*회의명\s*/\s*안건\s*\|\s*(.+?)\s*\|',           # 회의명 / 안건 (fallback)
+            ],
+            "flow": [
+                r'\|\s*참\s*석\s*자\s*\|\s*(.+?)\s*\|',               # 참 석 자
+            ],
+            "phone": [
+                r'\|\s*상\s*대\s*방\s*\|\s*(.+?)\s*\|',               # 상 대 방
+            ],
+        }
 
-        def run():
-            ok, text = gemini.extract_key_metrics(
-                summary_text, api_key,
-                cancel_event=self._cancel_event,
-                status_cb=lambda msg: self.after(0, lambda: self._metrics_status_var.set(msg)),
+        patterns = field_patterns.get(mode, [])
+        for pattern in patterns:
+            m = _re.search(pattern, summary_text)
+            if m:
+                raw = m.group(1).strip()
+                # 빈값·AI자동식별·괄호 플레이스홀더 필터
+                if raw and raw not in ("(참석 기관 및 인원 자동 식별)", "(투자업체명 자동 식별)",
+                                       "[참석자]", "AI 자동 생성", "") \
+                        and not raw.startswith("("):
+                    # 첫 번째 항목만 사용 (여러 기관이면 첫 기관명)
+                    first = _re.split(r'[/,·\n]', raw)[0].strip()
+                    # 대괄호 제거
+                    first = _re.sub(r'[\[\]]', '', first).strip()
+                    if first:
+                        return first
+        return ""
+
+    def _save_obsidian_note(self, summary_text: str, save_name: str) -> str:
+        """Obsidian 회의록 노트 자동 생성
+
+        파일명 형식 (모드별):
+          ir_md      → YYMMDD {기업명}           예) 260408 서메어
+          formal_md  → YYMMDD {상대방명}          예) 260408 테라릭스
+          topic      → YYMMDD {미팅당사자}        예) 260408 A기관협의
+          speaker    → YYMMDD 주간회의            예) 260408 주간회의
+          phone      → YYMMDD {상대방명} 통화     예) 260408 서동조대표 통화
+          flow       → YYMMDD {상대방명} 티타임   예) 260408 서동조대표 티타임
+          lecture_md → YYMMDD {강의명} 강의       예) 260408 창업투자 강의
+        """
+        try:
+            obsidian_dir = self._cfg.get(
+                "obsidian_meeting_dir",
+                r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\5. 회의록"
             )
-            self.after(0, lambda: self._on_metrics_done(ok, text))
+            date_str = datetime.now().strftime("%y%m%d")
+            mode = self._pipeline_sum_mode
 
-        threading.Thread(target=run, daemon=True).start()
+            # ① 회의록 본문에서 상대방/기업명 자동 추출 (formal_md·topic·flow·phone)
+            auto_name = self._extract_counterpart_name(summary_text)
 
-    def _on_metrics_done(self, ok: bool, text: str):
-        """핵심 지표 추출 완료 콜백"""
-        self._set_prog(self._metrics_prog, 100)
-        if ok:
-            self._metrics_text = text
-            self._metrics_status_var.set("✅ 핵심 지표 추출 완료!")
-            self._metrics_box.config(state="normal")
-            self._metrics_box.delete("1.0", "end")
-            self._metrics_box.insert("1.0", text)
-            self._metrics_box.config(state="disabled")
-            if self._current_sum_path:
-                try:
-                    with open(self._current_sum_path, "a", encoding="utf-8") as f:
-                        f.write(f"\n\n{'='*40}\n📊 핵심 지표\n{'='*40}\n{text}\n")
-                except Exception:
-                    pass
-        else:
-            self._metrics_status_var.set(f"❌ 추출 실패: {text[:60]}")
+            # ② save_name 정제 (fallback용): 날짜+시간 자동생성 prefix 및 불필요 suffix 제거
+            import re as _re
+            clean = _re.sub(r'^\d{8}_\d{6}_?', '', save_name).strip('_').strip()
+            clean = _re.sub(r'[_ ]*(STT|회의록|녹음)$', '', clean, flags=_re.IGNORECASE).strip('_').strip()
+
+            # 최종 사용 이름: 본문 자동추출 → save_name 정제값 → fallback 문자열
+            def _name(fallback: str) -> str:
+                return auto_name or clean or fallback
+
+            if mode == "speaker":
+                # 주간회의: 고정
+                note_title = f"{date_str} 주간회의"
+
+            elif mode == "ir_md":
+                # IR: 파이프라인 company_name 우선 → 본문 자동추출 → save_name
+                name = (self._pipeline_company_name.strip()
+                        or auto_name or clean or "IR미팅")
+                note_title = f"{date_str} {name}"
+
+            elif mode == "formal_md":
+                # 회의록(업무): 대상기업명만 (suffix 없음)
+                note_title = f"{date_str} {_name('업무미팅')}"
+
+            elif mode == "topic":
+                # 다자간 협의: 참석기관명만 (suffix 없음)
+                note_title = f"{date_str} {_name('다자협의')}"
+
+            elif mode == "phone":
+                # 전화통화: 상대방명 + "통화"
+                note_title = f"{date_str} {_name('통화')} 통화"
+
+            elif mode == "flow":
+                # 네트워킹(티타임): 상대방명 + "티타임"
+                note_title = f"{date_str} {_name('티타임')} 티타임"
+
+            elif mode == "lecture_md":
+                # 강의: 강의명 + "강의"
+                note_title = f"{date_str} {_name('강의')} 강의"
+
+            else:
+                note_title = f"{date_str} {_name('회의록')}"
+
+            note_filename = note_title + ".md"
+            note_path = os.path.join(obsidian_dir, note_filename)
+
+            # 디렉토리 생성 (없을 경우)
+            os.makedirs(obsidian_dir, exist_ok=True)
+
+            with open(note_path, "w", encoding="utf-8") as f:
+                f.write(summary_text)
+
+            return f"📓 Obsidian 저장: {note_filename}"
+        except Exception as e:
+            return f"⚠ Obsidian 저장 실패: {e}"
 
     def _resummarize(self):
         """🔄 커스텀 재요약 — 설정 탭의 커스텀 프롬프트를 현재 STT 텍스트에 적용"""
@@ -1819,6 +2033,8 @@ class App(tk.Tk):
         self._sum_status_var.set("커스텀 재요약 중...")
         self._sum_box.delete("1.0", "end")
 
+        prev_notes = self._get_obsidian_notes_content()
+
         def run():
             if self._pipeline_ai_engine == "claude":
                 cl_key = self._cfg.get("claude_api_key", "")
@@ -1845,6 +2061,8 @@ class App(tk.Tk):
                     summary_mode=self._pipeline_sum_mode,
                     cancel_event=self._cancel_event,
                     custom_instruction=custom_text,
+                    company_name=self._pipeline_company_name,
+                    prev_notes=prev_notes,
                 )
             self.after(0, lambda: self._on_resummarize_done(ok, text))
 
@@ -1965,8 +2183,6 @@ class App(tk.Tk):
         if drive_sum_link:
             result_lines += ["", f"☁ Drive 링크: {drive_sum_link}"]
         messagebox.showinfo("완료", "\n".join(result_lines))
-
-        self._start_metrics_extraction(text)
 
     def _summarize_with_chatgpt(self, stt_text: str, api_key: str,
                                  progress_cb=None, summary_mode: str = "speaker",
@@ -2547,6 +2763,12 @@ class App(tk.Tk):
     def _save_drive_auto_setting(self):
         """자동 업로드 체크박스 상태 저장"""
         self._cfg["drive_auto_upload"] = self._drive_auto_var.get()
+        config.save_config(self._cfg)
+
+    def _save_obs_setting(self):
+        """Obsidian 연동 설정 저장"""
+        self._cfg["obsidian_auto_save"] = self._obs_auto_var.get()
+        self._cfg["obsidian_meeting_dir"] = self._obs_dir_var.get()
         config.save_config(self._cfg)
 
     def _show_drive_setup_guide(self):
@@ -3137,13 +3359,15 @@ class App(tk.Tk):
         frm = tk.Frame(dlg, bg=BG)
         frm.pack(padx=20, pady=4)
         for label, val in [
-            ("화자 중심 — 발화자별 발언 구조화", "speaker"),
-            ("주제 중심 — 논의 주제별 구조화", "topic"),
-            ("회의양식 — K-Run Ventures 공식 회의록", "formal_md"),
+            ("주간회의 — K-Run Ventures 파트너 주간회의록", "speaker"),
+            ("다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
+            ("회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리", "formal_md"),
+            ("IR 미팅회의록 ★신규★ — 피투자사 IR 미팅 전문 정리", "ir_md"),
             ("강의 요약 — 학습/세미나 특화", "lecture_md"),
-            ("흐름 중심 ★신규★ — 맥락·인과관계 서술", "flow"),
+            ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
+            ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
         ]:
-            fg = SUCCESS if val == "flow" else TEXT
+            fg = SUCCESS if val == "ir_md" else TEXT
             tk.Radiobutton(frm, text=label, variable=sum_mode_var, value=val,
                            bg=BG, font=FONT_BODY, fg=fg,
                            activebackground=BG).pack(anchor="w")
@@ -3165,6 +3389,16 @@ class App(tk.Tk):
             return
 
         chosen_mode = sum_mode_var.get()
+
+        # IR 미팅 모드 선택 시 기업명 입력 (혁신의숲 API 조회용)
+        chosen_company_name = ""
+        if chosen_mode == "ir_md":
+            name = simpledialog.askstring(
+                "기업명 입력",
+                "혁신의숲 조회 기업명을 입력하세요:\n(정확한 법인명 입력 권장, 빈칸 시 API 조회 생략)",
+                parent=self,
+            )
+            chosen_company_name = (name or "").strip()
 
         # STT 텍스트 읽기
         try:
@@ -3191,8 +3425,9 @@ class App(tk.Tk):
         self._b_status_var.set("요약 중...")
 
         mode_label_map = {
-            "speaker": "화자중심", "topic": "주제중심",
-            "formal_md": "회의양식", "lecture_md": "강의요약", "flow": "흐름중심"
+            "speaker": "주간회의", "topic": "다자간 협의",
+            "formal_md": "회의록(업무)", "ir_md": "IR미팅회의록",
+            "lecture_md": "강의요약", "flow": "네트워킹(티타임)", "phone": "전화통화메모"
         }
         mode_label = mode_label_map.get(chosen_mode, chosen_mode)
 
@@ -3225,7 +3460,8 @@ class App(tk.Tk):
                     stt_text, self._cfg.get("gemini_api_key", ""),
                     progress_cb=prog, summary_mode=chosen_mode,
                     cancel_event=self._b_cancel_event,
-                    custom_instruction=combined_inst)
+                    custom_instruction=combined_inst,
+                    company_name=chosen_company_name)
 
             if self._b_cancel_event.is_set():
                 self.after(0, lambda: self._b_status_var.set("중지되었습니다."))
