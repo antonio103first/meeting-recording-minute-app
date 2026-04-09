@@ -460,8 +460,8 @@ class App(tk.Tk):
                   self._rename_speaker_dialog, w=11).pack(side="left", padx=4)
         self._btn(btn_row, "📤 공유 ▼", "#16A085",
                   self._share_menu, w=11).pack(side="left", padx=4)
-        self._btn(btn_row, "📥 PDF 저장", "#D35400",
-                  self._export_pdf_meeting, w=11).pack(side="left", padx=4)
+        self._btn(btn_row, "🔍 찾기/바꾸기", "#2E86C1",
+                  self._find_replace_dialog, w=13).pack(side="left", padx=4)
         self._btn(btn_row, "🗑 삭제", DANGER,
                   self._delete_meeting, w=10).pack(side="left", padx=4)
 
@@ -2626,43 +2626,149 @@ class App(tk.Tk):
         if sel:
             self._share_menu()
 
-    def _export_pdf_meeting(self):
-        """📥 PDF 저장 — 회의록 요약을 PDF(또는 HTML) 파일로 내보내기"""
+    def _find_replace_dialog(self):
+        """🔍 찾기/바꾸기 — 회의록 요약 텍스트에서 검색 및 치환"""
         sel = self._tree.selection()
         if not sel:
-            messagebox.showwarning("알림", "내보낼 항목을 선택해주세요.")
+            messagebox.showwarning("알림", "항목을 선택해주세요.")
             return
+
         mid  = int(sel[0])
-        data = database.get_meeting(mid)
-        summary_text = data.get("summary_text", "")
-        if not summary_text:
-            messagebox.showwarning("알림", "요약 내용이 없습니다.")
-            return
+        data = self._selected_meeting_data
 
-        file_name = data.get("file_name", "회의록")
-        default_name = f"{Path(file_name).stem}_회의록.pdf"
+        dlg = tk.Toplevel(self)
+        dlg.title("🔍 찾기 / 바꾸기")
+        dlg.resizable(False, False)
+        dlg.configure(bg=CARD_BG)
 
-        out_path = filedialog.asksaveasfilename(
-            title="PDF 저장",
-            initialfile=default_name,
-            defaultextension=".pdf",
-            filetypes=[("PDF 파일", "*.pdf"), ("HTML 파일", "*.html"), ("모든 파일", "*.*")],
-            initialdir=str(config.SUMMARY_SAVE_DIR),
-        )
-        if not out_path:
-            return
+        self.update_idletasks()
+        x = self.winfo_x() + self.winfo_width() // 2 - 230
+        y = self.winfo_y() + self.winfo_height() // 2 - 120
+        dlg.geometry(f"460x260+{x}+{y}")
 
-        ok, result = fm.export_pdf(summary_text, out_path, title=Path(file_name).stem)
-        if ok:
-            ext = Path(result).suffix.lower()
-            if ext == ".html":
-                msg = f"HTML 파일로 저장되었습니다.\n(PDF 변환은 weasyprint 설치 필요)\n\n{result}"
-            else:
-                msg = f"PDF 저장 완료!\n\n{result}"
-            if messagebox.askyesno("저장 완료", msg + "\n\n파일 위치를 탐색기에서 열겠습니까?"):
-                fm.open_file_in_explorer(result)
-        else:
-            messagebox.showerror("내보내기 실패", result)
+        # ── 입력 필드 ─────────────────────────────────────
+        pad = dict(padx=20, pady=4)
+
+        tk.Label(dlg, text="찾기 / 바꾸기", font=FONT_H2,
+                 bg=CARD_BG, fg=TEXT).pack(pady=(14, 4))
+        ttk.Separator(dlg).pack(fill="x", padx=20, pady=2)
+
+        find_frm = tk.Frame(dlg, bg=CARD_BG)
+        find_frm.pack(fill="x", **pad)
+        tk.Label(find_frm, text="찾기:", font=FONT_BODY, bg=CARD_BG, fg=TEXT,
+                 width=7, anchor="w").pack(side="left")
+        find_var = tk.StringVar()
+        find_entry = tk.Entry(find_frm, textvariable=find_var, font=FONT_BODY, width=36)
+        find_entry.pack(side="left", padx=(0, 4))
+
+        repl_frm = tk.Frame(dlg, bg=CARD_BG)
+        repl_frm.pack(fill="x", **pad)
+        tk.Label(repl_frm, text="바꾸기:", font=FONT_BODY, bg=CARD_BG, fg=TEXT,
+                 width=7, anchor="w").pack(side="left")
+        repl_var = tk.StringVar()
+        repl_entry = tk.Entry(repl_frm, textvariable=repl_var, font=FONT_BODY, width=36)
+        repl_entry.pack(side="left", padx=(0, 4))
+
+        # 대소문자 무시 옵션
+        opt_frm = tk.Frame(dlg, bg=CARD_BG)
+        opt_frm.pack(fill="x", padx=20, pady=(0, 4))
+        nocase_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(opt_frm, text="대소문자 무시", variable=nocase_var,
+                       bg=CARD_BG, font=FONT_SMALL, fg=TEXT,
+                       activebackground=CARD_BG).pack(side="left")
+
+        status_var = tk.StringVar(value="")
+        tk.Label(dlg, textvariable=status_var, font=FONT_SMALL,
+                 bg=CARD_BG, fg=TEXT_LIGHT).pack()
+
+        # ── 내부 상태 ──────────────────────────────────────
+        state = {"last_pos": "1.0", "count": 0}
+        TAG = "fr_highlight"
+        self._sum_detail_box.tag_config(TAG, background="#F9E79F", foreground="#000000")
+
+        def _clear_tags():
+            self._sum_detail_box.tag_remove(TAG, "1.0", "end")
+
+        def _find_next(from_pos=None):
+            keyword = find_var.get()
+            if not keyword:
+                status_var.set("찾을 내용을 입력하세요.")
+                return None
+            _clear_tags()
+            start = from_pos or state["last_pos"]
+            pos = self._sum_detail_box.search(
+                keyword, start, stopindex="end",
+                nocase=nocase_var.get()
+            )
+            if not pos:
+                # 처음부터 다시
+                pos = self._sum_detail_box.search(
+                    keyword, "1.0", stopindex="end",
+                    nocase=nocase_var.get()
+                )
+                if not pos:
+                    status_var.set("⚠ 찾을 수 없습니다.")
+                    state["last_pos"] = "1.0"
+                    return None
+            end_pos = f"{pos}+{len(keyword)}c"
+            self._sum_detail_box.tag_add(TAG, pos, end_pos)
+            self._sum_detail_box.see(pos)
+            state["last_pos"] = end_pos
+            status_var.set(f"발견: {pos}")
+            return pos, end_pos
+
+        def _replace_one():
+            result = _find_next()
+            if not result:
+                return
+            pos, end_pos = result
+            self._sum_detail_box.delete(pos, end_pos)
+            self._sum_detail_box.insert(pos, repl_var.get())
+            state["last_pos"] = f"{pos}+{len(repl_var.get())}c"
+            _find_next(state["last_pos"])
+
+        def _replace_all():
+            keyword = find_var.get()
+            replacement = repl_var.get()
+            if not keyword:
+                status_var.set("찾을 내용을 입력하세요.")
+                return
+            _clear_tags()
+            content = self._sum_detail_box.get("1.0", "end-1c")
+            import re as _re
+            flags = _re.IGNORECASE if nocase_var.get() else 0
+            new_content, count = _re.subn(_re.escape(keyword), replacement, content, flags=flags)
+            if count == 0:
+                status_var.set("⚠ 찾을 수 없습니다.")
+                return
+            # 텍스트 박스 갱신
+            self._sum_detail_box.delete("1.0", "end")
+            self._sum_detail_box.insert("1.0", new_content)
+            state["last_pos"] = "1.0"
+            # DB + 로컬 파일 저장
+            stt_text = data.get("stt_text", "")
+            database.update_meeting_summary(mid, stt_text=stt_text, summary_text=new_content)
+            fpath = data.get("summary_local_path", "")
+            if fpath and Path(fpath).exists():
+                try:
+                    Path(fpath).write_text(new_content, encoding="utf-8")
+                except Exception:
+                    pass
+            self._selected_meeting_data["summary_text"] = new_content
+            status_var.set(f"✅ {count}건 바꾸기 완료 — 저장됨")
+
+        # ── 버튼 행 ────────────────────────────────────────
+        ttk.Separator(dlg).pack(fill="x", padx=20, pady=6)
+        btn_frm = tk.Frame(dlg, bg=CARD_BG)
+        btn_frm.pack(pady=4)
+        self._btn(btn_frm, "다음 찾기", ACCENT, _find_next, w=11).pack(side="left", padx=4)
+        self._btn(btn_frm, "바꾸기", "#8E44AD", _replace_one, w=10).pack(side="left", padx=4)
+        self._btn(btn_frm, "모두 바꾸기", SUCCESS, _replace_all, w=11).pack(side="left", padx=4)
+        self._btn(btn_frm, "닫기", TEXT_LIGHT, lambda: (dlg.destroy(), _clear_tags()), w=8).pack(side="left", padx=4)
+
+        dlg.protocol("WM_DELETE_WINDOW", lambda: (dlg.destroy(), _clear_tags()))
+        find_entry.focus_set()
+        find_entry.bind("<Return>", lambda e: _find_next())
 
     def _delete_meeting(self):
         sel = self._tree.selection()
