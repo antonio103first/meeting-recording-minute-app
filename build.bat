@@ -42,14 +42,14 @@ cd /d "%~dp0"
     --windowed ^
     --name "회의녹음요약" ^
     --icon "app_icon.ico" ^
-    --add-data "app_dist\config.py;." ^
-    --add-data "app_dist\database.py;." ^
-    --add-data "app_dist\recorder.py;." ^
-    --add-data "app_dist\gemini_service.py;." ^
-    --add-data "app_dist\claude_service.py;." ^
-    --add-data "app_dist\clova_service.py;." ^
-    --add-data "app_dist\file_manager.py;." ^
-    --add-data "app_dist\google_drive.py;." ^
+    --add-data "app_dist\config.py:." ^
+    --add-data "app_dist\database.py:." ^
+    --add-data "app_dist\recorder.py:." ^
+    --add-data "app_dist\gemini_service.py:." ^
+    --add-data "app_dist\claude_service.py:." ^
+    --add-data "app_dist\clova_service.py:." ^
+    --add-data "app_dist\file_manager.py:." ^
+    --add-data "app_dist\google_drive.py:." ^
     --hidden-import "sounddevice" ^
     --hidden-import "soundfile" ^
     --hidden-import "google.genai" ^
