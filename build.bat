@@ -70,7 +70,7 @@ cd /d "%~dp0"
     --hidden-import "webbrowser" ^
     --distpath "%~dp0dist" ^
     --workpath "%~dp0build_temp" ^
-    --specpath "%~dp0" ^
+    --specpath "%~dp0." ^
     "app_dist\main.py"
 
 if errorlevel 1 (
