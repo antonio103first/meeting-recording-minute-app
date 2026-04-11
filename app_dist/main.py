@@ -80,6 +80,16 @@ class App(tk.Tk):
         database.init_database()
         self._cfg = config.load_config()
 
+        # 절전 방지 초기화 (Windows 전용)
+        self._sleep_prevention_active = False
+        try:
+            import ctypes
+            self._kernel32 = ctypes.windll.kernel32
+            self._ES_CONTINUOUS      = 0x80000000
+            self._ES_SYSTEM_REQUIRED = 0x00000001
+        except Exception:
+            self._kernel32 = None
+
         # 상태 변수
         self._recorder      = rec_mod.AudioRecorder()
         self._cancel_event  = threading.Event()
@@ -104,9 +114,17 @@ class App(tk.Tk):
         self._refresh_list()
         self._tick()
 
+        # 앱 종료 시 절전 방지 반드시 해제
+        self.protocol("WM_DELETE_WINDOW", self._on_app_close)
+
         # 첫 실행 마법사 (API 키 없을 때)
         if not self._cfg.get("gemini_api_key", "").strip():
             self.after(200, self._show_first_run_wizard)
+
+    def _on_app_close(self):
+        """앱 종료 핸들러 — 절전 방지 반드시 해제 후 종료"""
+        self._set_sleep_prevention(False)
+        self.destroy()
 
     # ── UI 구성 ──────────────────────────────────────────
     def _build_ui(self):
@@ -1220,6 +1238,7 @@ class App(tk.Tk):
                 self._btn_rec.config(text="● 녹음 중...", bg=DANGER)
                 self._btn_pause.config(state="normal")
                 self._btn_stop.config(state="normal")
+                self._set_sleep_prevention(True)   # 🔒 절전 방지 ON
             else:
                 messagebox.showerror("오류", msg)
 
@@ -1238,6 +1257,7 @@ class App(tk.Tk):
         self._btn_rec.config(text="● 녹음 시작", bg=ACCENT)
         self._btn_pause.config(text="⏸ 일시정지", state="disabled")
         self._btn_stop.config(state="disabled")
+        self._set_sleep_prevention(False)   # 🔓 절전 방지 OFF (녹음 종료)
         if not ok:
             messagebox.showerror("오류", result)
             return
@@ -1548,6 +1568,7 @@ class App(tk.Tk):
         )
 
         # ② STT 변환 시작
+        self._set_sleep_prevention(True)   # 🔒 절전 방지 ON (STT 변환 시작)
         num_spk = self._spk_var.get()
         self._processing = True
         self._cancel_event.clear()
@@ -1723,6 +1744,7 @@ class App(tk.Tk):
     def _on_pipeline_summary_done(self, ok: bool, text: str, stt_text: str):
         """④ 요약 완료 → ⑤ 파일명 입력 → ⑥ 로컬 저장"""
         self._processing = False
+        self._set_sleep_prevention(False)   # 🔓 절전 방지 OFF (요약 완료)
         self._btn_pipeline.config(state="normal")
         self._btn_txt_import.config(state="normal")
         self._btn_cancel.config(state="disabled")
@@ -2232,11 +2254,29 @@ class App(tk.Tk):
         except Exception as e:
             return False, f"ChatGPT 오류: {str(e)[:300]}"
 
+    # ── 절전 방지 ─────────────────────────────────────────
+    def _set_sleep_prevention(self, active: bool):
+        """Windows 절전 방지 ON/OFF (녹음·STT·요약 처리 중 PC 절전 차단)"""
+        if not self._kernel32:
+            return
+        try:
+            if active:
+                self._kernel32.SetThreadExecutionState(
+                    self._ES_CONTINUOUS | self._ES_SYSTEM_REQUIRED
+                )
+                self._sleep_prevention_active = True
+            else:
+                self._kernel32.SetThreadExecutionState(self._ES_CONTINUOUS)
+                self._sleep_prevention_active = False
+        except Exception:
+            pass
+
     def _cancel_process(self):
         """■ 중단 버튼"""
         self._cancel_event.set()
         self._stt_status_var.set("중단 요청됨...")
         self._sum_status_var.set("중단 요청됨...")
+        self._set_sleep_prevention(False)
 
     # ════════════════════════════════════════════════════
     # 회의 목록
