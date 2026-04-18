@@ -320,60 +320,191 @@ _SUMMARY_FORMAL_TEMPLATE = _SUMMARY_FORMAL_MD_TEMPLATE
 
 # ── 혁신의숲 API ────────────────────────────────────────
 _INNOFOREST_LOGIN_URL    = "https://live-api.innoforest.co.kr/leaf/users/v1/login"
-_INNOFOREST_SEARCH_URL   = "https://liveapi.innoforest.co.kr/seed/search/v1/findcorp"  # 하이픈 없음
-_INNOFOREST_BASE_URL     = "https://live-api.innoforest.co.kr/corporations/v1"          # 하이픈 있음
+# 검색 URL: 두 도메인 모두 시도 (서버 라우팅 차이 대응)
+_INNOFOREST_SEARCH_URLS  = [
+    "https://liveapi.innoforest.co.kr/seed/search/v1/findcorp",   # 하이픈 없음 (1순위)
+    "https://live-api.innoforest.co.kr/seed/search/v1/findcorp",  # 하이픈 있음  (폴백)
+]
+_INNOFOREST_BASE_URL     = "https://live-api.innoforest.co.kr/corporations/v1"
 _INNOFOREST_CREDENTIALS  = {"username": "krunventures@krunventures.com", "password": "krun1028@"}
 _INNOFOREST_HEADERS_BASE = {"Origin": "https://www.innoforest.co.kr",
                              "Referer": "https://www.innoforest.co.kr/"}
 
+# JWT 캐시 (모듈 레벨 — 프로세스 내 재사용, 만료 시 재로그인)
+_innoforest_jwt_cache: dict = {"token": "", "expires_at": 0.0}
+
+
+def _innoforest_login(requests_mod) -> str:
+    """혁신의숲 로그인 → JWT 반환. 1시간 캐시 재사용."""
+    import time
+    now = time.time()
+    if _innoforest_jwt_cache["token"] and _innoforest_jwt_cache["expires_at"] > now + 60:
+        return _innoforest_jwt_cache["token"]
+
+    r = requests_mod.post(
+        _INNOFOREST_LOGIN_URL,
+        json=_INNOFOREST_CREDENTIALS,
+        headers=_INNOFOREST_HEADERS_BASE,
+        timeout=15,
+    )
+    r.raise_for_status()
+    jwt = r.json().get("jwt", "") or r.json().get("token", "")
+    if not jwt:
+        raise RuntimeError("혁신의숲 로그인 실패 — JWT 없음 (자격증명 확인 필요)")
+
+    _innoforest_jwt_cache["token"]      = jwt
+    _innoforest_jwt_cache["expires_at"] = now + 3600  # 1시간 유효
+    return jwt
+
+
+def _innoforest_search(requests_mod, hdrs: dict, keyword: str, size: int = 5) -> list:
+    """기업명 키워드로 혁신의숲 검색. 두 도메인 순차 시도."""
+    for url in _INNOFOREST_SEARCH_URLS:
+        try:
+            r = requests_mod.get(
+                url,
+                params={"keyword": keyword, "page": 1, "size": size},
+                headers=hdrs,
+                timeout=15,
+            )
+            if r.status_code == 200:
+                content = r.json().get("data", {}).get("content", [])
+                if content:
+                    return content
+        except Exception:
+            continue
+    return []
+
+
+def _best_corp_match(corps: list, company_name: str) -> dict | None:
+    """검색 결과 중 법인명이 가장 유사한 기업 반환."""
+    if not corps:
+        return None
+    name_lower = company_name.lower().replace(" ", "")
+    scored = []
+    for c in corps:
+        corp_name = (c.get("corpName") or c.get("companyName") or "").lower().replace(" ", "")
+        # 정확 일치
+        if corp_name == name_lower:
+            return c
+        # 포함 관계 점수
+        score = 0
+        if name_lower in corp_name:
+            score = len(name_lower) / max(len(corp_name), 1)
+        elif corp_name in name_lower:
+            score = len(corp_name) / max(len(name_lower), 1)
+        # 공통 접두 길이
+        prefix = 0
+        for a, b in zip(name_lower, corp_name):
+            if a == b:
+                prefix += 1
+            else:
+                break
+        score = max(score, prefix / max(len(name_lower), 1))
+        scored.append((score, c))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_score, best = scored[0]
+    return best if best_score > 0.3 else corps[0]  # 최소 0.3 점 이상 or 첫 번째
+
+
+def _build_search_keywords(company_name: str) -> list[str]:
+    """법인명에서 멀티 검색 키워드 생성 (순서대로 시도).
+    예) '주식회사 서메어' → ['서메어', '서메', '서'], '(주)솔리드뷰' → ['솔리드뷰', '솔리드']
+    """
+    import re as _re
+    # 법인 형태 제거
+    clean = _re.sub(r'(주식회사|유한회사|\(주\)|\(유\)|㈜)', '', company_name, flags=_re.IGNORECASE).strip()
+    keywords = [clean] if clean != company_name else []
+    keywords.insert(0, company_name)  # 원본 항상 1순위
+
+    # 2글자 이상 단어 순서대로 추가 (부분 키워드 폴백)
+    words = [w for w in _re.split(r'[\s\-_]+', clean) if len(w) >= 2]
+    for w in words:
+        if w not in keywords:
+            keywords.append(w)
+
+    # 앞 2글자 / 3글자 단축 키워드
+    if len(clean) >= 4:
+        keywords.append(clean[:3])
+    if len(clean) >= 3:
+        keywords.append(clean[:2])
+
+    # 중복 제거 (순서 유지)
+    seen = set()
+    result = []
+    for k in keywords:
+        k = k.strip()
+        if k and k not in seen:
+            seen.add(k)
+            result.append(k)
+    return result
+
 
 def fetch_innoforest_data(company_name: str) -> dict:
     """혁신의숲 API로 기업 투자유치·재무·기본정보 조회.
-    반환: {"company_info": dict, "investments": list, "financials": list, "error": str|None}
+    반환: {"company_info": dict, "investments": list, "financials": list,
+           "matched_name": str, "error": str|None}
     """
     try:
         import requests
     except ImportError:
         return {"error": "requests 패키지 미설치 (pip install requests)"}
 
-    result = {"company_info": None, "investments": None, "financials": None, "error": None}
+    result = {
+        "company_info": None, "investments": None,
+        "financials": None, "matched_name": "", "error": None,
+    }
     try:
-        # 1) 로그인 → JWT 획득
-        r = requests.post(_INNOFOREST_LOGIN_URL, json=_INNOFOREST_CREDENTIALS, timeout=10)
-        jwt = r.json().get("jwt", "")
-        if not jwt:
-            result["error"] = "혁신의숲 로그인 실패 (자격증명 확인 필요)"
-            return result
-
+        # 1) 로그인 → JWT (캐시 활용)
+        jwt  = _innoforest_login(requests)
         hdrs = {**_INNOFOREST_HEADERS_BASE, "Authorization": f"Bearer {jwt}"}
 
-        # 2) 기업 검색 → CP코드 획득
-        r = requests.get(_INNOFOREST_SEARCH_URL,
-                         params={"keyword": company_name, "page": 1, "size": 3},
-                         headers=hdrs, timeout=10)
-        corps = r.json().get("data", {}).get("content", [])
+        # 2) 멀티 키워드 검색 전략 — 첫 결과가 있으면 최적 매칭 선택
+        keywords = _build_search_keywords(company_name)
+        corps    = []
+        used_keyword = ""
+        for kw in keywords:
+            corps = _innoforest_search(requests, hdrs, kw, size=5)
+            if corps:
+                used_keyword = kw
+                break
+
         if not corps:
-            result["error"] = f"혁신의숲 미등록: '{company_name}'"
+            # JWT 만료 가능성 → 강제 재로그인 후 1회 재시도
+            _innoforest_jwt_cache["expires_at"] = 0.0
+            jwt  = _innoforest_login(requests)
+            hdrs = {**_INNOFOREST_HEADERS_BASE, "Authorization": f"Bearer {jwt}"}
+            corps = _innoforest_search(requests, hdrs, keywords[0], size=5)
+
+        if not corps:
+            result["error"] = f"혁신의숲 미등록: '{company_name}' (키워드 {keywords[:3]} 모두 결과 없음)"
             return result
-        corp_id = corps[0].get("cpCode", "")
+
+        best  = _best_corp_match(corps, company_name)
+        corp_id    = best.get("cpCode") or best.get("corpCode") or best.get("id", "")
+        corp_name  = best.get("corpName") or best.get("companyName") or company_name
         if not corp_id:
             result["error"] = "기업 ID(CP코드) 획득 실패"
             return result
+        result["matched_name"] = corp_name
 
         # 3) 기업 기본정보 (설립일·대표자·소재지·직원 수)
         r = requests.get(f"{_INNOFOREST_BASE_URL}/{corp_id}/summary/similar",
-                         headers=hdrs, timeout=10)
-        result["company_info"] = r.json().get("data", {})
+                         headers=hdrs, timeout=15)
+        if r.status_code == 200:
+            result["company_info"] = r.json().get("data", {})
 
         # 4) 투자유치 현황 (라운드별 금액·밸류·투자사)
         r = requests.get(f"{_INNOFOREST_BASE_URL}/{corp_id}/investments/history",
-                         headers=hdrs, timeout=10)
-        result["investments"] = r.json().get("data", [])
+                         headers=hdrs, timeout=15)
+        if r.status_code == 200:
+            result["investments"] = r.json().get("data", [])
 
         # 5) 재무현황 (NICE 기반: 매출·영업이익·순이익·직원 수)
         r = requests.get(f"{_INNOFOREST_BASE_URL}/{corp_id}/finances/nice-only",
-                         headers=hdrs, timeout=10)
-        result["financials"] = r.json().get("data", [])
+                         headers=hdrs, timeout=15)
+        if r.status_code == 200:
+            result["financials"] = r.json().get("data", [])
 
     except Exception as e:
         result["error"] = f"혁신의숲 API 오류: {e}"
@@ -387,23 +518,26 @@ def format_innoforest_data(data: dict) -> str:
         msg = data.get("error", "조회 결과 없음") if data else "데이터 없음"
         return f"*(혁신의숲 {msg})*"
 
-    lines = ["[혁신의숲 자동 조회 데이터]"]
+    matched = data.get("matched_name", "")
+    header  = f"[혁신의숲 자동 조회 데이터] 매칭 법인명: {matched}" if matched else "[혁신의숲 자동 조회 데이터]"
+    lines   = [header]
 
     info = data.get("company_info") or {}
     if info:
-        lines.append(f"- 대표자: {info.get('ceoName', '미확인')}")
-        lines.append(f"- 설립일: {info.get('establishDate', '미확인')}")
-        lines.append(f"- 소재지: {info.get('address', '미확인')}")
-        lines.append(f"- 직원 수: {info.get('employeeCount', '미확인')}명")
+        lines.append(f"- 대표자: {info.get('ceoName') or info.get('representativeName') or '미확인'}")
+        lines.append(f"- 설립일: {info.get('establishDate') or info.get('foundedDate') or '미확인'}")
+        lines.append(f"- 소재지: {info.get('address') or info.get('location') or '미확인'}")
+        emp = info.get('employeeCount') or info.get('employees')
+        lines.append(f"- 직원 수: {emp if emp else '미확인'}명" if emp else "- 직원 수: 미확인")
 
     investments = data.get("investments") or []
     if investments:
         lines.append("- 투자유치 현황:")
         for inv in investments[:6]:
-            rnd   = inv.get("roundName", "")
-            amt   = inv.get("investAmount", "")
-            val   = inv.get("postValuation", "")
-            invst = inv.get("investorNames", "")
+            rnd   = inv.get("roundName")  or inv.get("round", "")
+            amt   = inv.get("investAmount") or inv.get("amount", "")
+            val   = inv.get("postValuation") or inv.get("valuation", "")
+            invst = inv.get("investorNames") or inv.get("investors", "")
             val_str = f" / 기업가치 {val}억원" if val else ""
             lines.append(f"  · {rnd}: {amt}억원{val_str} — {invst}")
     else:
@@ -413,12 +547,17 @@ def format_innoforest_data(data: dict) -> str:
     if financials:
         lines.append("- 재무현황 (NICE):")
         for fin in financials[:3]:
-            yr  = fin.get("year", "")
-            rev = fin.get("revenue", "")
-            op  = fin.get("operatingProfit", "")
-            net = fin.get("netIncome", "")
-            emp = fin.get("employeeCount", "")
-            lines.append(f"  · {yr}년: 매출 {rev}억원 / 영업이익 {op}억원 / 순이익 {net}억원 / 직원 {emp}명")
+            yr  = fin.get("year",  "")
+            rev = fin.get("revenue") or fin.get("sales", "")
+            op  = fin.get("operatingProfit") or fin.get("operatingIncome", "")
+            net = fin.get("netIncome") or fin.get("netProfit", "")
+            emp = fin.get("employeeCount") or fin.get("employees", "")
+            parts = []
+            if rev: parts.append(f"매출 {rev}억원")
+            if op:  parts.append(f"영업이익 {op}억원")
+            if net: parts.append(f"순이익 {net}억원")
+            if emp: parts.append(f"직원 {emp}명")
+            lines.append(f"  · {yr}년: {' / '.join(parts) if parts else '정보 없음'}")
     else:
         lines.append("- 재무현황: 미등록")
 
