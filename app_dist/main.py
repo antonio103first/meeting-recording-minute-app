@@ -2358,8 +2358,120 @@ class App(tk.Tk):
         result = self._save_obsidian_note(summary_text, file_name, mode=inferred_mode)
         messagebox.showinfo("Obsidian 저장", result)
 
+    # ── 마크다운 렌더러 (tkinter Text 태그 기반) ─────────
+    def _render_md(self, widget, md_text: str):
+        """마크다운 텍스트를 tkinter Text 위젯에 태그 스타일로 렌더링."""
+        import re as _re
+
+        _FONT_H1   = ("맑은 고딕", 17, "bold")
+        _FONT_H2   = ("맑은 고딕", 14, "bold")
+        _FONT_H3   = ("맑은 고딕", 12, "bold")
+        _FONT_BOLD = ("맑은 고딕", 11, "bold")
+        _FONT_ITAL = ("맑은 고딕", 11, "italic")
+        _FONT_CODE = ("Consolas", 10)
+        _FONT_BODY = ("맑은 고딕", 11)
+
+        widget.tag_configure("h1",   font=_FONT_H1,  spacing1=8,  spacing3=6,  foreground="#1A1A2E")
+        widget.tag_configure("h2",   font=_FONT_H2,  spacing1=6,  spacing3=4,  foreground="#16213E")
+        widget.tag_configure("h3",   font=_FONT_H3,  spacing1=4,  spacing3=2,  foreground="#0F3460")
+        widget.tag_configure("bold", font=_FONT_BOLD)
+        widget.tag_configure("ital", font=_FONT_ITAL)
+        widget.tag_configure("code", font=_FONT_CODE, background="#F0F0F0",
+                              relief="flat", borderwidth=1)
+        widget.tag_configure("bq",   font=_FONT_BODY, lmargin1=24, lmargin2=24,
+                              foreground="#555555", background="#F6F6F6", spacing1=1)
+        widget.tag_configure("hr",   font=("맑은 고딕", 2), background="#BBBBBB",
+                              spacing1=6, spacing3=6)
+        widget.tag_configure("tbl",  font=_FONT_CODE, background="#FAFAFA", lmargin1=8)
+        widget.tag_configure("li",   font=_FONT_BODY, lmargin1=16, lmargin2=28)
+        widget.tag_configure("body", font=_FONT_BODY)
+
+        def _inline(text, base="body"):
+            """인라인 bold / italic / code 처리 후 위젯에 삽입."""
+            segments = _re.split(
+                r'(\*\*\*[^*\n]+\*\*\*|\*\*[^*\n]+\*\*|__[^_\n]+__|'
+                r'\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`)', text)
+            for seg in segments:
+                if _re.fullmatch(r'\*\*\*[^*\n]+\*\*\*', seg):
+                    widget.insert("end", seg[3:-3], (base, "bold", "ital"))
+                elif _re.fullmatch(r'\*\*[^*\n]+\*\*|__[^_\n]+__', seg):
+                    inner = seg[2:-2]
+                    widget.insert("end", inner, (base, "bold"))
+                elif _re.fullmatch(r'\*[^*\n]+\*|_[^_\n]+_', seg):
+                    inner = seg[1:-1]
+                    widget.insert("end", inner, (base, "ital"))
+                elif _re.fullmatch(r'`[^`\n]+`', seg):
+                    widget.insert("end", seg[1:-1], "code")
+                else:
+                    widget.insert("end", seg, base)
+
+        def _strip_md_bold(s):
+            return _re.sub(r'\*\*([^*]+)\*\*', r'\1', s)
+
+        lines = md_text.split("\n")
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+
+            # 수평선
+            if _re.match(r'^-{3,}$|^\*{3,}$|^_{3,}$', line.strip()):
+                widget.insert("end", "─" * 72 + "\n", "hr")
+
+            # H1
+            elif _re.match(r'^# ', line):
+                widget.insert("end", _strip_md_bold(line[2:].strip()) + "\n", "h1")
+
+            # H2
+            elif _re.match(r'^## ', line):
+                widget.insert("end", _strip_md_bold(line[3:].strip()) + "\n", "h2")
+
+            # H3
+            elif _re.match(r'^### ', line):
+                widget.insert("end", _strip_md_bold(line[4:].strip()) + "\n", "h3")
+
+            # Blockquote
+            elif line.startswith(">"):
+                inner = _re.sub(r'^>+\s?', '', line)
+                widget.insert("end", "  ▌ ", "bq")
+                _inline(inner, "bq")
+                widget.insert("end", "\n", "bq")
+
+            # 테이블 구분선 (|---|---| 스타일) — 시각 구분선으로 대체
+            elif _re.match(r'^\|[\s\-:]+\|', line):
+                widget.insert("end", "  " + "─" * 64 + "\n", "tbl")
+
+            # 테이블 행
+            elif line.startswith("|"):
+                widget.insert("end", line + "\n", "tbl")
+
+            # 순서 없는 목록
+            elif _re.match(r'^[\-\*\+]\s', line):
+                body = line[2:].strip()
+                widget.insert("end", "  • ", "li")
+                _inline(body, "li")
+                widget.insert("end", "\n", "li")
+
+            # 순서 있는 목록
+            elif _re.match(r'^\d+\.\s', line):
+                m = _re.match(r'^(\d+\.)\s(.*)', line)
+                if m:
+                    widget.insert("end", f"  {m.group(1)} ", "li")
+                    _inline(m.group(2), "li")
+                    widget.insert("end", "\n", "li")
+
+            # 빈 줄
+            elif line.strip() == "":
+                widget.insert("end", "\n", "body")
+
+            # 일반 본문
+            else:
+                _inline(line, "body")
+                widget.insert("end", "\n", "body")
+
+            i += 1
+
     def _view_meeting_full(self):
-        """📄 전체 보기 — 별도 창에서 요약 + STT 전체 내용 표시"""
+        """📄 전체 보기 — 4탭: 회의록(TXT) / 회의록(MD) / STT 원본 / 정보 + 저장 버튼"""
         sel = self._tree.selection()
         if not sel:
             messagebox.showwarning("알림", "항목을 선택해주세요.")
@@ -2372,52 +2484,109 @@ class App(tk.Tk):
         dlg.resizable(True, True)
 
         self.update_idletasks()
-        w, h = 900, 700
+        w, h = 980, 760
         x = self.winfo_x() + self.winfo_width() // 2 - w // 2
         y = self.winfo_y() + self.winfo_height() // 2 - h // 2
         dlg.geometry(f"{w}x{h}+{x}+{y}")
         dlg.configure(bg=CARD_BG)
 
         nb = ttk.Notebook(dlg, style="Detail.TNotebook")
-        nb.pack(fill="both", expand=True, padx=10, pady=8)
+        nb.pack(fill="both", expand=True, padx=10, pady=(8, 4))
 
-        # 요약 탭
-        sum_frm = tk.Frame(nb, bg=CARD_BG)
-        nb.add(sum_frm, text="  📋 회의록 요약  ")
-        sum_box = scrolledtext.ScrolledText(sum_frm, font=FONT_BODY, wrap="word", bg="#FAFAFA")
-        sum_box.pack(fill="both", expand=True)
-        sum_box.insert("1.0", data.get("summary_text", "(없음)"))
+        orig_summary = data.get("summary_text", "")
+        orig_stt     = data.get("stt_text", "")
 
-        # STT 탭
+        # ── 탭 1: 회의록(TXT) — 편집 가능 ──────────────
+        txt_frm = tk.Frame(nb, bg=CARD_BG)
+        nb.add(txt_frm, text="  📄 회의록(TXT)  ")
+        txt_box = scrolledtext.ScrolledText(
+            txt_frm, font=("Consolas", 10), wrap="word", bg="#FAFAFA", undo=True)
+        txt_box.pack(fill="both", expand=True)
+        txt_box.insert("1.0", orig_summary)
+
+        # ── 탭 2: 회의록(MD) — 렌더링 뷰어 ─────────────
+        md_frm = tk.Frame(nb, bg="#FFFFFF")
+        nb.add(md_frm, text="  📋 회의록(MD)  ")
+        md_box = scrolledtext.ScrolledText(
+            md_frm, font=("맑은 고딕", 11), wrap="word",
+            bg="#FFFFFF", padx=16, pady=12, cursor="arrow")
+        md_box.pack(fill="both", expand=True)
+        self._render_md(md_box, orig_summary)
+        md_box.config(state="disabled")
+
+        # MD 탭 활성화 시 TXT 현재 내용으로 재렌더링
+        def _on_tab_changed(event):
+            if nb.index(nb.select()) == 1:
+                cur_txt = txt_box.get("1.0", "end-1c")
+                md_box.config(state="normal")
+                md_box.delete("1.0", "end")
+                self._render_md(md_box, cur_txt)
+                md_box.config(state="disabled")
+        nb.bind("<<NotebookTabChanged>>", _on_tab_changed)
+
+        # ── 탭 3: STT 원본 — 편집 가능 ─────────────────
         stt_frm = tk.Frame(nb, bg=CARD_BG)
-        nb.add(stt_frm, text="  📝 STT 원문  ")
-        stt_box = scrolledtext.ScrolledText(stt_frm, font=FONT_BODY, wrap="word", bg="#FAFAFA")
+        nb.add(stt_frm, text="  📝 STT 원본  ")
+        stt_box = scrolledtext.ScrolledText(
+            stt_frm, font=("맑은 고딕", 11), wrap="word", bg="#FAFAFA", undo=True)
         stt_box.pack(fill="both", expand=True)
-        stt_box.insert("1.0", data.get("stt_text", "(없음)"))
+        stt_box.insert("1.0", orig_stt)
 
-        # 정보 탭
+        # ── 탭 4: 정보 ──────────────────────────────────
         info_frm = tk.Frame(nb, bg=CARD_BG)
         nb.add(info_frm, text="  ℹ 정보  ")
         info_text = (
-            f"파일명: {data.get('file_name','')}\n"
-            f"생성일시: {data.get('created_at','')}\n"
-            f"MP3 경로: {data.get('mp3_local_path','—')}\n"
-            f"STT 파일: {data.get('stt_local_path','—')}\n"
-            f"요약 파일: {data.get('summary_local_path','—')}\n"
-            f"Drive MP3: {data.get('drive_mp3_link','—')}\n"
-            f"Drive STT: {data.get('drive_stt_link','—')}\n"
-            f"Drive 요약: {data.get('drive_summary_link','—')}\n"
-            f"파일크기: {data.get('file_size_mb',0):.2f} MB\n"
+            f"파일명:      {data.get('file_name','')}\n"
+            f"생성일시:    {data.get('created_at','')}\n"
+            f"요약 모드:   {data.get('summary_mode','—')}\n\n"
+            f"MP3 경로:    {data.get('mp3_local_path','—')}\n"
+            f"STT 파일:    {data.get('stt_local_path','—')}\n"
+            f"요약 파일:   {data.get('summary_local_path','—')}\n\n"
+            f"Drive MP3:   {data.get('drive_mp3_link','—')}\n"
+            f"Drive STT:   {data.get('drive_stt_link','—')}\n"
+            f"Drive 요약:  {data.get('drive_summary_link','—')}\n\n"
+            f"파일크기:    {data.get('file_size_mb',0):.2f} MB\n"
         )
-        info_box = scrolledtext.ScrolledText(info_frm, font=FONT_BODY, wrap="word", bg="#FAFAFA", height=12)
+        info_box = scrolledtext.ScrolledText(
+            info_frm, font=("Consolas", 10), wrap="word", bg="#FAFAFA")
         info_box.pack(fill="both", expand=True)
         info_box.insert("1.0", info_text)
         info_box.config(state="disabled")
 
+        # ── 버튼 행 ─────────────────────────────────────
         btn_row = tk.Frame(dlg, bg=CARD_BG)
-        btn_row.pack(pady=8)
-        sum_path_full  = data.get("summary_local_path", "")
-        stt_path_full  = data.get("stt_local_path", "")
+        btn_row.pack(fill="x", padx=10, pady=(2, 8))
+
+        sum_path_full = data.get("summary_local_path", "")
+        stt_path_full = data.get("stt_local_path", "")
+
+        def _save_summary():
+            new_txt = txt_box.get("1.0", "end-1c")
+            cur_stt = stt_box.get("1.0", "end-1c")
+            try:
+                database.update_meeting_summary(mid, stt_text=cur_stt, summary_text=new_txt)
+                if sum_path_full and Path(sum_path_full).exists():
+                    Path(sum_path_full).write_text(new_txt, encoding="utf-8")
+                self._refresh_list()
+                self._sum_detail_box.delete("1.0", "end")
+                self._sum_detail_box.insert("1.0", new_txt)
+                messagebox.showinfo("저장 완료", "회의록이 저장됐습니다.")
+            except Exception as e:
+                messagebox.showerror("저장 오류", str(e))
+
+        def _save_stt():
+            new_stt = stt_box.get("1.0", "end-1c")
+            cur_txt = txt_box.get("1.0", "end-1c")
+            try:
+                database.update_meeting_summary(mid, stt_text=new_stt, summary_text=cur_txt)
+                if stt_path_full and Path(stt_path_full).exists():
+                    Path(stt_path_full).write_text(new_stt, encoding="utf-8")
+                self._refresh_list()
+                self._stt_detail_box.delete("1.0", "end")
+                self._stt_detail_box.insert("1.0", new_stt)
+                messagebox.showinfo("저장 완료", "STT 원본이 저장됐습니다.")
+            except Exception as e:
+                messagebox.showerror("저장 오류", str(e))
 
         def _open_file(p):
             if p and Path(p).exists():
@@ -2428,13 +2597,15 @@ class App(tk.Tk):
             else:
                 messagebox.showwarning("알림", f"파일을 찾을 수 없습니다:\n{p}")
 
+        self._btn(btn_row, "💾 회의록 저장", SUCCESS,
+                  _save_summary, w=14).pack(side="left", padx=4)
+        self._btn(btn_row, "💾 STT 저장", "#7D6608",
+                  _save_stt, w=12).pack(side="left", padx=4)
         if sum_path_full and Path(sum_path_full).exists():
-            self._btn(btn_row, "📂 회의록 파일 열기", ACCENT,
-                      lambda p=sum_path_full: _open_file(p), w=16).pack(side="left", padx=4)
-        if stt_path_full and Path(stt_path_full).exists():
-            self._btn(btn_row, "📂 STT 파일 열기", SUCCESS,
-                      lambda p=stt_path_full: _open_file(p), w=14).pack(side="left", padx=4)
-        self._btn(btn_row, "닫기", TEXT_LIGHT, dlg.destroy, w=10).pack(side="left", padx=4)
+            self._btn(btn_row, "📂 파일 열기", ACCENT,
+                      lambda p=sum_path_full: _open_file(p), w=12).pack(side="left", padx=4)
+        self._btn(btn_row, "닫기", TEXT_LIGHT,
+                  dlg.destroy, w=10).pack(side="right", padx=4)
 
     # ── 이전 버전 하위 호환 ─────────────────────────────
     def _view_meeting(self):
