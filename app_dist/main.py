@@ -546,15 +546,12 @@ class App(tk.Tk):
         self._default_sum_mode_var = tk.StringVar(
             value=self._cfg.get("summary_mode", "topic"))
         for label, val in [
-            ("주간회의 — 회의록 앱 파트너 주간회의록", "speaker"),
-            ("다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
-            ("회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리", "formal_md"),
-            ("IR 미팅회의록 ★신규★ — 피투자사 IR 미팅 전문 정리", "ir_md"),
+            ("회의록 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
             ("강의 요약 — 학습/세미나 특화", "lecture_md"),
             ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
             ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
         ]:
-            fg = SUCCESS if val == "ir_md" else TEXT
+            fg = TEXT
             tk.Radiobutton(
                 sm_card, text=label,
                 variable=self._default_sum_mode_var, value=val,
@@ -1417,27 +1414,18 @@ class App(tk.Tk):
         frm1.pack(fill="x", padx=20, pady=4)
         sum_mode_var = tk.StringVar(value=self._pipeline_sum_mode)
         _FONT_OPT = ("맑은 고딕", 11)
-        tk.Radiobutton(frm1, text="화자 중심 — 참석자별 발언 정리",
-                       variable=sum_mode_var, value="speaker",
-                       bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
-        tk.Radiobutton(frm1, text="다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹",
+        tk.Radiobutton(frm1, text="회의록 — 기관협의·다자간 공식회의·다자간 네트워킹",
                        variable=sum_mode_var, value="topic",
                        bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
-        tk.Radiobutton(frm1, text="회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리",
-                       variable=sum_mode_var, value="formal_md",
-                       bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
-        tk.Radiobutton(frm1, text="IR 미팅회의록 ★신규★ — 피투자사 IR 미팅 전문 정리",
-                       variable=sum_mode_var, value="ir_md",
-                       bg=CARD_BG, font=_FONT_OPT, fg=SUCCESS, activebackground=CARD_BG).pack(anchor="w", pady=1)
         tk.Radiobutton(frm1, text="강의 요약 — 소주제별 논리적 정리, 신앙/업무 강의 자동 적응",
                        variable=sum_mode_var, value="lecture_md",
                        bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
         tk.Radiobutton(frm1, text="네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리",
                        variable=sum_mode_var, value="flow",
-                       bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
+                       bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
         tk.Radiobutton(frm1, text="전화통화 메모 — 통화 내용 주제별 요약 + 질의응답",
                        variable=sum_mode_var, value="phone",
-                       bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
+                       bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
 
         # AI 엔진
         frm_ai = tk.LabelFrame(dlg, text="  AI 요약 엔진  ", font=FONT_BODY,
@@ -1934,10 +1922,7 @@ class App(tk.Tk):
         """Obsidian 회의록 노트 자동 생성 (저장 전 파일명 확인 다이얼로그 포함)
 
         파일명 형식 (모드별):
-          ir_md      → YYMMDD {기업명}           예) 260408 서메어
-          formal_md  → YYMMDD {상대방명}          예) 260408 테라릭스
           topic      → YYMMDD {미팅당사자}        예) 260408 A기관협의
-          speaker    → YYMMDD 주간회의            예) 260408 주간회의
           phone      → YYMMDD {상대방명} 통화     예) 260408 서동조대표 통화
           flow       → YYMMDD {상대방명} 티타임   예) 260408 서동조대표 티타임
           lecture_md → YYMMDD {강의명} 강의       예) 260408 창업투자 강의
@@ -1969,19 +1954,8 @@ class App(tk.Tk):
             def _name(fallback: str) -> str:
                 return auto_name or clean or fallback
 
-            if mode == "speaker":
-                note_title = f"{date_str} 주간회의"
-
-            elif mode == "ir_md":
-                name = (self._pipeline_company_name.strip()
-                        or auto_name or clean or "IR미팅")
-                note_title = f"{date_str} {name}"
-
-            elif mode == "formal_md":
-                note_title = f"{date_str} {_name('업무미팅')}"
-
-            elif mode == "topic":
-                note_title = f"{date_str} {_name('다자협의')}"
+            if mode == "topic":
+                note_title = f"{date_str} {_name('회의록')}"
 
             elif mode == "phone":
                 note_title = f"{date_str} {_name('통화')} 통화"
@@ -2202,7 +2176,7 @@ class App(tk.Tk):
         messagebox.showinfo("완료", "\n".join(result_lines))
 
     def _summarize_with_chatgpt(self, stt_text: str, api_key: str,
-                                 progress_cb=None, summary_mode: str = "speaker",
+                                 progress_cb=None, summary_mode: str = "topic",
                                  cancel_event=None, custom_instruction: str = "") -> tuple:
         """ChatGPT (OpenAI) 요약 — claude_service 패턴 준용"""
         if not api_key:
@@ -3692,22 +3666,18 @@ class App(tk.Tk):
         tk.Label(dlg, text="요약 방식을 선택하세요:", font=FONT_BODY,
                  bg=BG, fg=TEXT).pack(padx=20, pady=(16, 8))
 
-        default_mode = self._cfg.get("summary_mode", "speaker")
+        default_mode = self._cfg.get("summary_mode", "topic")
         sum_mode_var = tk.StringVar(value=default_mode)
         frm = tk.Frame(dlg, bg=BG)
         frm.pack(padx=20, pady=4)
         for label, val in [
-            ("주간회의 — 회의록 앱 파트너 주간회의록", "speaker"),
-            ("다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
-            ("회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리", "formal_md"),
-            ("IR 미팅회의록 ★신규★ — 피투자사 IR 미팅 전문 정리", "ir_md"),
+            ("회의록 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
             ("강의 요약 — 학습/세미나 특화", "lecture_md"),
             ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
             ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
         ]:
-            fg = SUCCESS if val == "ir_md" else TEXT
             tk.Radiobutton(frm, text=label, variable=sum_mode_var, value=val,
-                           bg=BG, font=FONT_BODY, fg=fg,
+                           bg=BG, font=FONT_BODY, fg=TEXT,
                            activebackground=BG).pack(anchor="w")
 
         confirmed = {"ok": False}
