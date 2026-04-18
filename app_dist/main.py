@@ -476,6 +476,8 @@ class App(tk.Tk):
                   self._print_meeting, w=12).pack(side="left", padx=4)
         self._btn(btn_row, "✏ 화자이름", "#7D6608",
                   self._rename_speaker_dialog, w=11).pack(side="left", padx=4)
+        self._btn(btn_row, "📓 Obsidian", "#5B2C6F",
+                  self._save_selected_to_obsidian, w=11).pack(side="left", padx=4)
         self._btn(btn_row, "📤 공유 ▼", "#16A085",
                   self._share_menu, w=11).pack(side="left", padx=4)
         self._btn(btn_row, "🔍 찾기/바꾸기", "#2E86C1",
@@ -2328,6 +2330,33 @@ class App(tk.Tk):
         # STT 원문 탭
         self._stt_detail_box.delete("1.0", "end")
         self._stt_detail_box.insert("1.0", data.get("stt_text", "(STT 원문 없음)"))
+
+    def _save_selected_to_obsidian(self):
+        """📓 Obsidian 저장 — 회의목록에서 선택한 항목을 Obsidian 볼트에 저장"""
+        sel = self._tree.selection()
+        if not sel:
+            messagebox.showwarning("알림", "목록에서 항목을 선택해주세요.")
+            return
+
+        data = self._selected_meeting_data
+        summary_text = data.get("summary_text", "")
+        if not summary_text or summary_text == "(요약 없음)":
+            messagebox.showwarning("알림", "선택한 항목에 저장된 회의록 요약이 없습니다.")
+            return
+
+        file_name = data.get("file_name", "")
+        # 파일명에서 요약 모드 추정 (summary_mode 필드 있으면 우선 사용)
+        stored_mode = data.get("summary_mode", "")
+        mode_label_to_key = {
+            "주간회의": "speaker", "다자간 협의": "topic",
+            "회의록(업무)": "formal_md", "IR미팅회의록": "ir_md",
+            "강의요약": "lecture_md", "네트워킹(티타임)": "flow",
+            "전화통화메모": "phone",
+        }
+        inferred_mode = mode_label_to_key.get(stored_mode, self._pipeline_sum_mode)
+
+        result = self._save_obsidian_note(summary_text, file_name, mode=inferred_mode)
+        messagebox.showinfo("Obsidian 저장", result)
 
     def _view_meeting_full(self):
         """📄 전체 보기 — 별도 창에서 요약 + STT 전체 내용 표시"""
