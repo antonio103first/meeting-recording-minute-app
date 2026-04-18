@@ -1949,8 +1949,9 @@ class App(tk.Tk):
                         return first
         return ""
 
-    def _save_obsidian_note(self, summary_text: str, save_name: str) -> str:
-        """Obsidian 회의록 노트 자동 생성
+    def _save_obsidian_note(self, summary_text: str, save_name: str,
+                            mode: str = None) -> str:
+        """Obsidian 회의록 노트 자동 생성 (저장 전 파일명 확인 다이얼로그 포함)
 
         파일명 형식 (모드별):
           ir_md      → YYMMDD {기업명}           예) 260408 서메어
@@ -1967,10 +1968,17 @@ class App(tk.Tk):
                 r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\5. 회의록"
             )
             date_str = datetime.now().strftime("%y%m%d")
-            mode = self._pipeline_sum_mode
+            mode = mode or self._pipeline_sum_mode
 
             # ① 회의록 본문에서 상대방/기업명 자동 추출 (formal_md·topic·flow·phone)
+            # _extract_counterpart_name 은 self._pipeline_sum_mode 를 참조하므로
+            # mode 가 다를 경우 임시로 교체 후 복원
+            _prev_mode = self._pipeline_sum_mode
+            if mode != _prev_mode:
+                self._pipeline_sum_mode = mode
             auto_name = self._extract_counterpart_name(summary_text)
+            if mode != _prev_mode:
+                self._pipeline_sum_mode = _prev_mode
 
             # ② save_name 정제 (fallback용): 날짜+시간 자동생성 prefix 및 불필요 suffix 제거
             import re as _re
@@ -1982,39 +1990,46 @@ class App(tk.Tk):
                 return auto_name or clean or fallback
 
             if mode == "speaker":
-                # 주간회의: 고정
                 note_title = f"{date_str} 주간회의"
 
             elif mode == "ir_md":
-                # IR: 파이프라인 company_name 우선 → 본문 자동추출 → save_name
                 name = (self._pipeline_company_name.strip()
                         or auto_name or clean or "IR미팅")
                 note_title = f"{date_str} {name}"
 
             elif mode == "formal_md":
-                # 회의록(업무): 대상기업명만 (suffix 없음)
                 note_title = f"{date_str} {_name('업무미팅')}"
 
             elif mode == "topic":
-                # 다자간 협의: 참석기관명만 (suffix 없음)
                 note_title = f"{date_str} {_name('다자협의')}"
 
             elif mode == "phone":
-                # 전화통화: 상대방명 + "통화"
                 note_title = f"{date_str} {_name('통화')} 통화"
 
             elif mode == "flow":
-                # 네트워킹(티타임): 상대방명 + "티타임"
                 note_title = f"{date_str} {_name('티타임')} 티타임"
 
             elif mode == "lecture_md":
-                # 강의: 강의명 + "강의"
                 note_title = f"{date_str} {_name('강의')} 강의"
 
             else:
                 note_title = f"{date_str} {_name('회의록')}"
 
-            note_filename = note_title + ".md"
+            # ③ 파일명 확인 다이얼로그 — 사용자가 수정 가능
+            confirmed_title = simpledialog.askstring(
+                "Obsidian 저장 — 파일명 확인",
+                "저장할 파일명을 확인하거나 수정하세요.\n(.md 확장자 자동 추가)",
+                initialvalue=note_title,
+                parent=self,
+            )
+            if not confirmed_title or not confirmed_title.strip():
+                return "📓 Obsidian 저장 취소됨"
+
+            confirmed_title = confirmed_title.strip()
+            # 파일명에 사용 불가한 문자 제거
+            confirmed_title = _re.sub(r'[\\/:*?"<>|]', '_', confirmed_title)
+
+            note_filename = confirmed_title + ".md"
             note_path = os.path.join(obsidian_dir, note_filename)
 
             # 디렉토리 생성 (없을 경우)
@@ -3616,7 +3631,7 @@ class App(tk.Tk):
                 return
 
             if ok:
-                self.after(0, lambda r=result: self._b_on_success(r, mode_label, combined_inst))
+                self.after(0, lambda r=result: self._b_on_success(r, mode_label, combined_inst, chosen_mode))
             else:
                 err = result
                 self.after(0, lambda e=err: self._b_status_var.set(f"❌ 오류: {e}"))
@@ -3625,7 +3640,8 @@ class App(tk.Tk):
 
         threading.Thread(target=_run, daemon=True).start()
 
-    def _b_on_success(self, summary_text: str, mode_label: str, custom_inst: str):
+    def _b_on_success(self, summary_text: str, mode_label: str, custom_inst: str,
+                      sum_mode: str = ""):
         """영역 B 변환 완료 처리"""
         # 결과 표시
         self._b_result_box.config(state="normal")
@@ -3673,6 +3689,18 @@ class App(tk.Tk):
             )
             # 회의목록 갱신
             self._refresh_list()
+
+            # Obsidian 저장 (자동 저장 ON인 경우)
+            if self._cfg.get("obsidian_auto_save", True):
+                obs_result = self._save_obsidian_note(
+                    summary_text,
+                    Path(out_path).stem,
+                    mode=sum_mode or self._pipeline_sum_mode,
+                )
+                self._b_status_var.set(
+                    self._b_status_var.get() + f"  |  {obs_result}"
+                )
+
             if messagebox.askyesno("저장 완료",
                                    f"회의록이 저장되었습니다.\n\n{out_path}\n\n파일 위치를 탐색기에서 열겠습니까?"):
                 import file_manager as fm
