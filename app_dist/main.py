@@ -321,22 +321,6 @@ class App(tk.Tk):
             bg="#FAFAFA", relief="solid", bd=1)
         self._stt_box.pack(fill="x")
 
-        # 이전 회의록 참조 링크 (비교 분석용)
-        obs_header = tk.Frame(stt_card, bg=CARD_BG)
-        obs_header.pack(fill="x", pady=(10, 2))
-        tk.Label(obs_header, text="📎 이전 회의록 참조 (Obsidian 링크, 비교 분석용)",
-                 font=FONT_BODY, bg=CARD_BG, fg=TEXT).pack(side="left")
-        self._btn_obs_add = self._btn(obs_header, "+ 추가", "#2980B9",
-                                      self._obs_link_add, w=6)
-        self._btn_obs_add.pack(side="right", padx=2)
-
-        # 링크 목록 프레임 (스크롤 가능)
-        self._obs_links_frame = tk.Frame(stt_card, bg=CARD_BG)
-        self._obs_links_frame.pack(fill="x")
-        self._obs_link_vars = []   # list of StringVar
-        self._obs_link_rows = []   # list of Frame (for removal)
-        # 초기 1개 행 추가
-        self._obs_link_add()
 
         # ─ 섹션 3: 회의록 요약 결과 ─────────────────────
         self._card(inner, "📋 회의록 요약 결과").pack(fill="x", **pad)
@@ -476,8 +460,6 @@ class App(tk.Tk):
                   self._print_meeting, w=12).pack(side="left", padx=4)
         self._btn(btn_row, "✏ 화자이름", "#7D6608",
                   self._rename_speaker_dialog, w=11).pack(side="left", padx=4)
-        self._btn(btn_row, "📓 Obsidian", "#5B2C6F",
-                  self._save_selected_to_obsidian, w=11).pack(side="left", padx=4)
         self._btn(btn_row, "📤 공유 ▼", "#16A085",
                   self._share_menu, w=11).pack(side="left", padx=4)
         self._btn(btn_row, "🔍 찾기/바꾸기", "#2E86C1",
@@ -959,45 +941,6 @@ class App(tk.Tk):
         tk.Label(appdata_row, text=str(config.APP_DATA_DIR),
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(side="left")
 
-        # ─ Obsidian 연동 설정 ────────────────────────────
-        self._card(inner, "📓 Obsidian 연동 설정").pack(fill="x", **pad)
-        obs_card = self._last_card
-
-        tk.Label(obs_card,
-                 text="회의록 완료 후 Obsidian 볼트 폴더에 자동으로 노트를 생성합니다.",
-                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(0, 6))
-
-        # 자동 저장 체크박스
-        self._obs_auto_var = tk.BooleanVar(value=self._cfg.get("obsidian_auto_save", True))
-        tk.Checkbutton(obs_card,
-                       text="✅ 회의록 완료 후 Obsidian에 자동 저장",
-                       variable=self._obs_auto_var, bg=CARD_BG, font=FONT_BODY,
-                       activebackground=CARD_BG,
-                       command=lambda: self._save_obs_setting()).pack(anchor="w", pady=(0, 4))
-
-        # Obsidian 경로 설정
-        obs_path_row = tk.Frame(obs_card, bg=CARD_BG)
-        obs_path_row.pack(fill="x", pady=2)
-        tk.Label(obs_path_row, text="저장 폴더:", font=FONT_BODY,
-                 bg=CARD_BG, fg=TEXT, width=10, anchor="w").pack(side="left")
-        self._obs_dir_var = tk.StringVar(
-            value=self._cfg.get("obsidian_meeting_dir",
-                                r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\5. 회의록"))
-        tk.Entry(obs_path_row, textvariable=self._obs_dir_var,
-                 font=FONT_SMALL, width=38, state="readonly").pack(side="left", padx=4)
-
-        def _browse_obs():
-            d = filedialog.askdirectory(title="Obsidian 회의록 폴더 선택",
-                                        initialdir=self._obs_dir_var.get())
-            if d:
-                self._obs_dir_var.set(d)
-                self._save_obs_setting()
-        self._btn(obs_path_row, "📂 찾아보기", ACCENT, _browse_obs, w=10).pack(side="left", padx=2)
-
-        tk.Label(obs_card,
-                 text="※ 저장 파일명 형식: YYMMDD 기업명 IR.md  (예: 260408 서메어 IR.md)",
-                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(4, 0))
-
         # ─ 로컬 프린터 설정 ──────────────────────────────
         self._card(inner, "🖨 로컬 프린터 설정").pack(fill="x", **pad)
         net_card = self._last_card
@@ -1299,54 +1242,6 @@ class App(tk.Tk):
     # ════════════════════════════════════════════════════
     # 자동화 파이프라인
     # ════════════════════════════════════════════════════
-
-    # ── Obsidian 이전 회의록 링크 관리 ──────────────────────────────
-    def _obs_link_add(self):
-        """이전 회의록 Obsidian 링크 행 추가"""
-        var = tk.StringVar()
-        row = tk.Frame(self._obs_links_frame, bg=CARD_BG)
-        row.pack(fill="x", pady=1)
-
-        entry = tk.Entry(row, textvariable=var, font=FONT_SMALL, width=60,
-                         bg="#FAFAFA", relief="solid", bd=1)
-        entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
-
-        def _browse():
-            path = filedialog.askopenfilename(
-                title="Obsidian 이전 회의록 선택",
-                filetypes=[("Markdown 파일", "*.md"), ("텍스트 파일", "*.txt"), ("모든 파일", "*.*")],
-            )
-            if path:
-                var.set(path)
-
-        def _remove():
-            row.destroy()
-            if var in self._obs_link_vars:
-                idx = self._obs_link_vars.index(var)
-                self._obs_link_vars.pop(idx)
-                self._obs_link_rows.pop(idx)
-
-        self._btn(row, "📂", "#7F8C8D", _browse, w=3).pack(side="left", padx=2)
-        self._btn(row, "✕", DANGER, _remove, w=3).pack(side="left", padx=2)
-
-        self._obs_link_vars.append(var)
-        self._obs_link_rows.append(row)
-
-    def _get_obsidian_notes_content(self) -> str:
-        """입력된 Obsidian 링크 경로에서 파일 내용을 읽어 문자열로 반환"""
-        parts = []
-        for var in self._obs_link_vars:
-            path = var.get().strip()
-            if not path:
-                continue
-            try:
-                with open(path, encoding="utf-8") as f:
-                    content = f.read().strip()
-                fname = os.path.basename(path)
-                parts.append(f"### [{fname}]\n{content}")
-            except Exception as e:
-                parts.append(f"### [{path}]\n⚠ 파일 읽기 실패: {e}")
-        return "\n\n".join(parts)
 
     def _import_txt_and_summarize(self):
         """[📎 TXT 파일 첨부] 버튼 → STT 결과 txt 불러와 요약 파이프라인 시작"""
@@ -1677,7 +1572,6 @@ class App(tk.Tk):
         if self._cfg.get("custom_prompt_enabled") and self._cfg.get("custom_prompt_text"):
             custom_inst = self._cfg["custom_prompt_text"]
 
-        prev_notes = self._get_obsidian_notes_content()
 
         def run_sum():
             if self._pipeline_ai_engine == "claude":
@@ -1845,7 +1739,7 @@ class App(tk.Tk):
     def _finalize_save(self, mp3_path, stt_path, sum_path, save_name,
                        stt_text, text, msgs,
                        drive_mp3_link, drive_stt_link, drive_sum_link):
-        """DB 저장 + Obsidian 저장 + 완료 팝업"""
+        """DB 저장 + 완료 팝업"""
         # DB 저장
         if mp3_path or stt_path or sum_path:
             mid = database.save_meeting(
@@ -1863,11 +1757,6 @@ class App(tk.Tk):
             self._meeting_id = mid
             msgs.append(f"✅ DB 저장 완료 (ID: {mid})")
         self._refresh_list()
-
-        # Obsidian 노트 자동 생성
-        if text and self._cfg.get("obsidian_auto_save", True):
-            obs_result = self._save_obsidian_note(text, save_name)
-            msgs.append(obs_result)
 
         # 저장 상태 표시
         self._save_status_var.set(" | ".join(msgs))
@@ -1917,85 +1806,6 @@ class App(tk.Tk):
                         return first
         return ""
 
-    def _save_obsidian_note(self, summary_text: str, save_name: str,
-                            mode: str = None) -> str:
-        """Obsidian 회의록 노트 자동 생성 (저장 전 파일명 확인 다이얼로그 포함)
-
-        파일명 형식 (모드별):
-          topic      → YYMMDD {미팅당사자}        예) 260408 A기관협의
-          phone      → YYMMDD {상대방명} 통화     예) 260408 서동조대표 통화
-          flow       → YYMMDD {상대방명} 티타임   예) 260408 서동조대표 티타임
-          lecture_md → YYMMDD {강의명} 강의       예) 260408 창업투자 강의
-        """
-        try:
-            obsidian_dir = self._cfg.get(
-                "obsidian_meeting_dir",
-                r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\5. 회의록"
-            )
-            date_str = datetime.now().strftime("%y%m%d")
-            mode = mode or self._pipeline_sum_mode
-
-            # ① 회의록 본문에서 상대방/기업명 자동 추출 (formal_md·topic·flow·phone)
-            # _extract_counterpart_name 은 self._pipeline_sum_mode 를 참조하므로
-            # mode 가 다를 경우 임시로 교체 후 복원
-            _prev_mode = self._pipeline_sum_mode
-            if mode != _prev_mode:
-                self._pipeline_sum_mode = mode
-            auto_name = self._extract_counterpart_name(summary_text)
-            if mode != _prev_mode:
-                self._pipeline_sum_mode = _prev_mode
-
-            # ② save_name 정제 (fallback용): 날짜+시간 자동생성 prefix 및 불필요 suffix 제거
-            import re as _re
-            clean = _re.sub(r'^\d{8}_\d{6}_?', '', save_name).strip('_').strip()
-            clean = _re.sub(r'[_ ]*(STT|회의록|녹음)$', '', clean, flags=_re.IGNORECASE).strip('_').strip()
-
-            # 최종 사용 이름: 본문 자동추출 → save_name 정제값 → fallback 문자열
-            def _name(fallback: str) -> str:
-                return auto_name or clean or fallback
-
-            if mode == "topic":
-                note_title = f"{date_str} {_name('회의록')}"
-
-            elif mode == "phone":
-                note_title = f"{date_str} {_name('통화')} 통화"
-
-            elif mode == "flow":
-                note_title = f"{date_str} {_name('티타임')} 티타임"
-
-            elif mode == "lecture_md":
-                note_title = f"{date_str} {_name('강의')} 강의"
-
-            else:
-                note_title = f"{date_str} {_name('회의록')}"
-
-            # ③ 파일명 확인 다이얼로그 — 사용자가 수정 가능
-            confirmed_title = simpledialog.askstring(
-                "Obsidian 저장 — 파일명 확인",
-                "저장할 파일명을 확인하거나 수정하세요.\n(.md 확장자 자동 추가)",
-                initialvalue=note_title,
-                parent=self,
-            )
-            if not confirmed_title or not confirmed_title.strip():
-                return "📓 Obsidian 저장 취소됨"
-
-            confirmed_title = confirmed_title.strip()
-            # 파일명에 사용 불가한 문자 제거
-            confirmed_title = _re.sub(r'[\\/:*?"<>|]', '_', confirmed_title)
-
-            note_filename = confirmed_title + ".md"
-            note_path = os.path.join(obsidian_dir, note_filename)
-
-            # 디렉토리 생성 (없을 경우)
-            os.makedirs(obsidian_dir, exist_ok=True)
-
-            with open(note_path, "w", encoding="utf-8") as f:
-                f.write(summary_text)
-
-            return f"📓 Obsidian 저장: {note_filename}"
-        except Exception as e:
-            return f"⚠ Obsidian 저장 실패: {e}"
-
     def _resummarize(self):
         """🔄 커스텀 재요약 — 설정 탭의 커스텀 프롬프트를 현재 STT 텍스트에 적용"""
         if not self._stt_text:
@@ -2024,7 +1834,6 @@ class App(tk.Tk):
         self._sum_status_var.set("커스텀 재요약 중...")
         self._sum_box.delete("1.0", "end")
 
-        prev_notes = self._get_obsidian_notes_content()
 
         def run():
             if self._pipeline_ai_engine == "claude":
@@ -2282,32 +2091,6 @@ class App(tk.Tk):
         # STT 원문 탭
         self._stt_detail_box.delete("1.0", "end")
         self._stt_detail_box.insert("1.0", data.get("stt_text", "(STT 원문 없음)"))
-
-    def _save_selected_to_obsidian(self):
-        """📓 Obsidian 저장 — 회의목록에서 선택한 항목을 Obsidian 볼트에 저장"""
-        sel = self._tree.selection()
-        if not sel:
-            messagebox.showwarning("알림", "목록에서 항목을 선택해주세요.")
-            return
-
-        data = self._selected_meeting_data
-        summary_text = data.get("summary_text", "")
-        if not summary_text or summary_text == "(요약 없음)":
-            messagebox.showwarning("알림", "선택한 항목에 저장된 회의록 요약이 없습니다.")
-            return
-
-        file_name = data.get("file_name", "")
-        # 파일명에서 요약 모드 추정 (summary_mode 필드 있으면 우선 사용)
-        stored_mode = data.get("summary_mode", "")
-        mode_label_to_key = {
-            "회의록": "topic",
-            "강의요약": "lecture_md", "네트워킹(티타임)": "flow",
-            "전화통화메모": "phone",
-        }
-        inferred_mode = mode_label_to_key.get(stored_mode, self._pipeline_sum_mode)
-
-        result = self._save_obsidian_note(summary_text, file_name, mode=inferred_mode)
-        messagebox.showinfo("Obsidian 저장", result)
 
     # ── 마크다운 렌더러 (tkinter Text 태그 기반) ─────────
     def _render_md(self, widget, md_text: str):
@@ -3077,12 +2860,6 @@ class App(tk.Tk):
         self._cfg["drive_auto_upload"] = self._drive_auto_var.get()
         config.save_config(self._cfg)
 
-    def _save_obs_setting(self):
-        """Obsidian 연동 설정 저장"""
-        self._cfg["obsidian_auto_save"] = self._obs_auto_var.get()
-        self._cfg["obsidian_meeting_dir"] = self._obs_dir_var.get()
-        config.save_config(self._cfg)
-
     def _show_drive_setup_guide(self):
         """Google Drive OAuth 자격증명 발급 방법 안내 팝업"""
         dlg = tk.Toplevel(self)
@@ -3828,17 +3605,6 @@ class App(tk.Tk):
             )
             # 회의목록 갱신
             self._refresh_list()
-
-            # Obsidian 저장 (자동 저장 ON인 경우)
-            if self._cfg.get("obsidian_auto_save", True):
-                obs_result = self._save_obsidian_note(
-                    summary_text,
-                    Path(out_path).stem,
-                    mode=sum_mode or self._pipeline_sum_mode,
-                )
-                self._b_status_var.set(
-                    self._b_status_var.get() + f"  |  {obs_result}"
-                )
 
             if messagebox.askyesno("저장 완료",
                                    f"회의록이 저장되었습니다.\n\n{out_path}\n\n파일 위치를 탐색기에서 열겠습니까?"):
