@@ -60,14 +60,14 @@ cd /d "%~dp0"
     --name "회의녹음요약" ^
     --icon "app_icon.ico" ^
     %FFMPEG_ARG% ^
-    --add-data "app_dist\config.py;." ^
-    --add-data "app_dist\database.py;." ^
-    --add-data "app_dist\recorder.py;." ^
-    --add-data "app_dist\gemini_service.py;." ^
-    --add-data "app_dist\claude_service.py;." ^
-    --add-data "app_dist\clova_service.py;." ^
-    --add-data "app_dist\file_manager.py;." ^
-    --add-data "app_dist\google_drive.py;." ^
+    --add-data "app_dist\config.py:." ^
+    --add-data "app_dist\database.py:." ^
+    --add-data "app_dist\recorder.py:." ^
+    --add-data "app_dist\gemini_service.py:." ^
+    --add-data "app_dist\claude_service.py:." ^
+    --add-data "app_dist\clova_service.py:." ^
+    --add-data "app_dist\file_manager.py:." ^
+    --add-data "app_dist\google_drive.py:." ^
     --hidden-import "sounddevice" ^
     --hidden-import "soundfile" ^
     --hidden-import "google.genai" ^
@@ -88,7 +88,7 @@ cd /d "%~dp0"
     --hidden-import "webbrowser" ^
     --distpath "%~dp0dist_배포" ^
     --workpath "%~dp0build_dist_temp" ^
-    --specpath "%~dp0" ^
+    --specpath "%~dp0." ^
     "app_dist\main.py"
 
 if errorlevel 1 (
