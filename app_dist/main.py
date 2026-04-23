@@ -1745,7 +1745,7 @@ class App(tk.Tk):
         self._set_prog(self._sum_prog, 100)
 
         # ⑤ 파일명 입력 팝업
-        default_name = datetime.now().strftime("%Y%m%d_%H%M%S") + "_녹음"
+        default_name = self._make_default_name(text)
         save_name = simpledialog.askstring(
             "파일명 입력",
             "저장할 파일명을 입력하세요 (확장자 제외):",
@@ -1929,6 +1929,36 @@ class App(tk.Tk):
                         return first
         return ""
 
+    def _make_default_name(self, summary_text: str = "", mode: str = None) -> str:
+        """기본 파일명 생성: {제목}_{YYYYMMDD}({모드명})
+        제목은 요약 본문에서 자동 추출. 추출 불가 시 날짜만 사용."""
+        mode_label_map = {
+            "topic":       "회의록",
+            "formal_md":   "업무미팅",
+            "ir_md":       "IR미팅",
+            "flow":        "티타임",
+            "phone":       "전화통화메모",
+            "lecture_md":  "강의요약",
+            "speaker":     "주간회의",
+        }
+        _mode = mode or self._pipeline_sum_mode
+        mode_label = mode_label_map.get(_mode, _mode)
+        date_str = datetime.now().strftime("%Y%m%d")
+
+        title = ""
+        if summary_text:
+            # 임시로 mode 교체 후 추출
+            _prev = self._pipeline_sum_mode
+            if _mode != _prev:
+                self._pipeline_sum_mode = _mode
+            title = self._extract_counterpart_name(summary_text)
+            if _mode != _prev:
+                self._pipeline_sum_mode = _prev
+
+        if title:
+            return f"{title}_{date_str}({mode_label})"
+        return f"{date_str}({mode_label})"
+
     def _save_obsidian_note(self, summary_text: str, save_name: str,
                             mode: str = None) -> str:
         """Obsidian 회의록 노트 자동 생성 (저장 전 파일명 확인 다이얼로그 포함)
@@ -2104,7 +2134,7 @@ class App(tk.Tk):
         self._set_prog(self._sum_prog, 100)
 
         # ── 파일명 입력 팝업 ─────────────────────────────
-        default_name = datetime.now().strftime("%Y%m%d_%H%M%S") + "_커스텀요약"
+        default_name = self._make_default_name(text)
         save_name = simpledialog.askstring(
             "파일명 입력",
             "저장할 파일명을 입력하세요 (확장자 제외):",
@@ -3820,17 +3850,11 @@ class App(tk.Tk):
         self._btn_b_convert.config(state="normal")
         self._btn_b_stop.config(state="disabled")
 
-        # 파일명 suffix 결정
-        suffix = f"_{mode_label}"
+        # 기본 파일명: {제목}_{YYYYMMDD}({모드명})
+        _base = self._make_default_name(summary_text, mode=sum_mode or self._pipeline_sum_mode)
         if custom_inst.strip():
-            suffix += "_커스텀요약"
-
-        # 기본 파일명 (STT 파일명 기반)
-        stt_stem = Path(self._b_stt_path).stem
-        # _stt 제거
-        if stt_stem.endswith("_stt"):
-            stt_stem = stt_stem[:-4]
-        default_name = stt_stem + suffix + ".md"
+            _base += "_커스텀요약"
+        default_name = _base + ".md"
 
         # 저장 다이얼로그
         out_path = filedialog.asksaveasfilename(
