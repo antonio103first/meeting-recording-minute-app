@@ -100,7 +100,7 @@ class App(tk.Tk):
         self._processing    = False
 
         # 파이프라인 임시 저장
-        self._pipeline_sum_mode    = "speaker"
+        self._pipeline_sum_mode    = "topic"
         self._pipeline_ai_engine   = self._cfg.get("summary_engine", "gemini")  # "gemini" | "claude" | "chatgpt"
         self._pipeline_company_name = ""  # IR 미팅 모드 전용: 혁신의숲 API 조회 기업명
         self._pipeline_stt_engine  = self._cfg.get("stt_engine", "gemini")      # "gemini" | "clova"
@@ -544,9 +544,9 @@ class App(tk.Tk):
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(0, 6))
 
         self._default_sum_mode_var = tk.StringVar(
-            value=self._cfg.get("summary_mode", "speaker"))
+            value=self._cfg.get("summary_mode", "topic"))
         for label, val in [
-            ("주간회의 — K-Run Ventures 파트너 주간회의록", "speaker"),
+            ("주간회의 — 회의록 앱 파트너 주간회의록", "speaker"),
             ("다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
             ("회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리", "formal_md"),
             ("IR 미팅회의록 ★신규★ — 피투자사 IR 미팅 전문 정리", "ir_md"),
@@ -985,7 +985,7 @@ class App(tk.Tk):
                  bg=CARD_BG, fg=TEXT, width=10, anchor="w").pack(side="left")
         self._obs_dir_var = tk.StringVar(
             value=self._cfg.get("obsidian_meeting_dir",
-                                r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\5. 회의록"))
+                                r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\08_회의록"))
         tk.Entry(obs_path_row, textvariable=self._obs_dir_var,
                  font=FONT_SMALL, width=38, state="readonly").pack(side="left", padx=4)
 
@@ -1467,16 +1467,7 @@ class App(tk.Tk):
             self._pipeline_sum_mode  = sum_mode_var.get()
             self._pipeline_ai_engine = ai_var.get()
             dlg.destroy()
-            # IR 미팅 모드 선택 시 기업명 입력 (혁신의숲 API 조회용)
-            if self._pipeline_sum_mode == "ir_md":
-                name = simpledialog.askstring(
-                    "기업명 입력",
-                    "혁신의숲 조회 기업명을 입력하세요:\n(정확한 법인명 입력 권장, 빈칸 시 API 조회 생략)",
-                    parent=self,
-                )
-                self._pipeline_company_name = (name or "").strip()
-            else:
-                self._pipeline_company_name = ""
+            self._pipeline_company_name = ""
 
         def _cancel():
             dlg.destroy()
@@ -1534,25 +1525,15 @@ class App(tk.Tk):
             return
 
         # ① 설정 탭의 기본값을 자동 적용 (팝업 없음 — F-06 영역 A 정책)
-        self._pipeline_sum_mode   = self._cfg.get("summary_mode", "speaker")
+        self._pipeline_sum_mode   = self._cfg.get("summary_mode", "topic")
         self._pipeline_ai_engine  = self._cfg.get("summary_engine", "gemini")
         self._pipeline_stt_engine = self._cfg.get("stt_engine", "clova")
         self._pipeline_rename_spk = False
 
-        # IR 미팅 모드인 경우 기업명 입력 (혁신의숲 API 조회용)
-        if self._pipeline_sum_mode == "ir_md":
-            name = simpledialog.askstring(
-                "기업명 입력",
-                "혁신의숲 조회 기업명을 입력하세요:\n(정확한 법인명 입력 권장, 빈칸 시 API 조회 생략)",
-                parent=self,
-            )
-            self._pipeline_company_name = (name or "").strip()
-        else:
-            self._pipeline_company_name = ""
+        self._pipeline_company_name = ""
 
         mode_label_map = {
-            "speaker": "주간회의", "topic": "다자간 협의",
-            "formal_md": "회의록(업무)", "ir_md": "IR미팅회의록",
+            "topic": "회의록",
             "lecture_md": "강의요약", "flow": "네트워킹(티타임)", "phone": "전화통화메모"
         }
         engine_label_map = {
@@ -1919,18 +1900,15 @@ class App(tk.Tk):
         # 모드별 추출 대상 필드 (마크다운 테이블 행 패턴)
         # 형식: | 필드명 | 값 |
         field_patterns = {
-            "formal_md": [
-                r'\|\s*대\s*상\s*기\s*업\s*\|\s*(.+?)\s*\|',          # 대 상 기 업
-            ],
             "topic": [
-                r'\|\s*참\s*석\s*기\s*관\s*\|\s*(.+?)\s*\|',          # 참 석 기 관
-                r'\|\s*회의명\s*/\s*안건\s*\|\s*(.+?)\s*\|',           # 회의명 / 안건 (fallback)
+                r'\|\s*참\s*석\s*기\s*관\s*\|\s*(.+?)\s*\|',
+                r'\|\s*회의명\s*/\s*안건\s*\|\s*(.+?)\s*\|',
             ],
             "flow": [
-                r'\|\s*참\s*석\s*자\s*\|\s*(.+?)\s*\|',               # 참 석 자
+                r'\|\s*참\s*석\s*자\s*\|\s*(.+?)\s*\|',
             ],
             "phone": [
-                r'\|\s*상\s*대\s*방\s*\|\s*(.+?)\s*\|',               # 상 대 방
+                r'\|\s*상\s*대\s*방\s*\|\s*(.+?)\s*\|',
             ],
         }
 
@@ -1967,7 +1945,7 @@ class App(tk.Tk):
         try:
             obsidian_dir = self._cfg.get(
                 "obsidian_meeting_dir",
-                r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\5. 회의록"
+                r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\08_회의록"
             )
             date_str = datetime.now().strftime("%y%m%d")
             mode = mode or self._pipeline_sum_mode
@@ -2348,8 +2326,7 @@ class App(tk.Tk):
         # 파일명에서 요약 모드 추정 (summary_mode 필드 있으면 우선 사용)
         stored_mode = data.get("summary_mode", "")
         mode_label_to_key = {
-            "주간회의": "speaker", "다자간 협의": "topic",
-            "회의록(업무)": "formal_md", "IR미팅회의록": "ir_md",
+            "회의록": "topic",
             "강의요약": "lecture_md", "네트워킹(티타임)": "flow",
             "전화통화메모": "phone",
         }
@@ -3720,7 +3697,7 @@ class App(tk.Tk):
         frm = tk.Frame(dlg, bg=BG)
         frm.pack(padx=20, pady=4)
         for label, val in [
-            ("주간회의 — K-Run Ventures 파트너 주간회의록", "speaker"),
+            ("주간회의 — 회의록 앱 파트너 주간회의록", "speaker"),
             ("다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
             ("회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리", "formal_md"),
             ("IR 미팅회의록 ★신규★ — 피투자사 IR 미팅 전문 정리", "ir_md"),
@@ -3753,13 +3730,6 @@ class App(tk.Tk):
 
         # IR 미팅 모드 선택 시 기업명 입력 (혁신의숲 API 조회용)
         chosen_company_name = ""
-        if chosen_mode == "ir_md":
-            name = simpledialog.askstring(
-                "기업명 입력",
-                "혁신의숲 조회 기업명을 입력하세요:\n(정확한 법인명 입력 권장, 빈칸 시 API 조회 생략)",
-                parent=self,
-            )
-            chosen_company_name = (name or "").strip()
 
         # STT 텍스트 읽기
         try:
@@ -3786,8 +3756,7 @@ class App(tk.Tk):
         self._b_status_var.set("요약 중...")
 
         mode_label_map = {
-            "speaker": "주간회의", "topic": "다자간 협의",
-            "formal_md": "회의록(업무)", "ir_md": "IR미팅회의록",
+            "topic": "회의록",
             "lecture_md": "강의요약", "flow": "네트워킹(티타임)", "phone": "전화통화메모"
         }
         mode_label = mode_label_map.get(chosen_mode, chosen_mode)
