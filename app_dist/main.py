@@ -549,17 +549,16 @@ class App(tk.Tk):
             ("주간회의 — 회의록 앱 파트너 주간회의록", "speaker"),
             ("다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
             ("회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리", "formal_md"),
-            ("IR 미팅회의록 ★신규★ — 피투자사 IR 미팅 전문 정리", "ir_md"),
+            ("IR 미팅회의록 — 피투자사 IR 미팅 전문 정리", "ir_md"),
             ("강의 요약 — 학습/세미나 특화", "lecture_md"),
             ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
             ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
-            ("컨퍼런스/간담회 ★신규★ — 다수 발표자 행사·세미나·라운드테이블", "conference"),
+            ("컨퍼런스/간담회 — 다수 발표자 행사·세미나·라운드테이블", "conference"),
         ]:
-            fg = SUCCESS if val == "ir_md" else TEXT
             tk.Radiobutton(
                 sm_card, text=label,
                 variable=self._default_sum_mode_var, value=val,
-                bg=CARD_BG, font=FONT_BODY, fg=fg, activebackground=CARD_BG,
+                bg=CARD_BG, font=FONT_BODY, fg=TEXT, activebackground=CARD_BG,
                 command=self._save_default_sum_mode
             ).pack(anchor="w")
 
@@ -1403,7 +1402,7 @@ class App(tk.Tk):
         self.update_idletasks()
         x = self.winfo_x() + self.winfo_width() // 2 - 250
         y = self.winfo_y() + self.winfo_height() // 2 - 230
-        dlg.geometry(f"520x540+{x}+{y}")
+        dlg.geometry(f"520x620+{x}+{y}")
         dlg.configure(bg=CARD_BG)
 
         tk.Label(dlg, text="요약 옵션 선택", font=FONT_H2,
@@ -1427,21 +1426,21 @@ class App(tk.Tk):
         tk.Radiobutton(frm1, text="회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리",
                        variable=sum_mode_var, value="formal_md",
                        bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
-        tk.Radiobutton(frm1, text="IR 미팅회의록 ★신규★ — 피투자사 IR 미팅 전문 정리",
+        tk.Radiobutton(frm1, text="IR 미팅회의록 — 피투자사 IR 미팅 전문 정리",
                        variable=sum_mode_var, value="ir_md",
-                       bg=CARD_BG, font=_FONT_OPT, fg=SUCCESS, activebackground=CARD_BG).pack(anchor="w", pady=1)
+                       bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
         tk.Radiobutton(frm1, text="강의 요약 — 소주제별 논리적 정리, 신앙/업무 강의 자동 적응",
                        variable=sum_mode_var, value="lecture_md",
-                       bg=CARD_BG, font=_FONT_OPT, activebackground=CARD_BG).pack(anchor="w", pady=1)
+                       bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
         tk.Radiobutton(frm1, text="네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리",
                        variable=sum_mode_var, value="flow",
                        bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
         tk.Radiobutton(frm1, text="전화통화 메모 — 통화 내용 주제별 요약 + 질의응답",
                        variable=sum_mode_var, value="phone",
                        bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
-        tk.Radiobutton(frm1, text="컨퍼런스/간담회 ★신규★ — 다수 발표자 행사·세미나·라운드테이블",
+        tk.Radiobutton(frm1, text="컨퍼런스/간담회 — 다수 발표자 행사·세미나·라운드테이블",
                        variable=sum_mode_var, value="conference",
-                       bg=CARD_BG, font=_FONT_OPT, fg=SUCCESS, activebackground=CARD_BG).pack(anchor="w", pady=1)
+                       bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
 
         # AI 엔진
         frm_ai = tk.LabelFrame(dlg, text="  AI 요약 엔진  ", font=FONT_BODY,
@@ -3734,15 +3733,14 @@ class App(tk.Tk):
             ("주간회의 — 회의록 앱 파트너 주간회의록", "speaker"),
             ("다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
             ("회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리", "formal_md"),
-            ("IR 미팅회의록 ★신규★ — 피투자사 IR 미팅 전문 정리", "ir_md"),
+            ("IR 미팅회의록 — 피투자사 IR 미팅 전문 정리", "ir_md"),
             ("강의 요약 — 학습/세미나 특화", "lecture_md"),
             ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
             ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
-            ("컨퍼런스/간담회 ★신규★ — 다수 발표자 행사·세미나·라운드테이블", "conference"),
+            ("컨퍼런스/간담회 — 다수 발표자 행사·세미나·라운드테이블", "conference"),
         ]:
-            fg = SUCCESS if val == "ir_md" else TEXT
             tk.Radiobutton(frm, text=label, variable=sum_mode_var, value=val,
-                           bg=BG, font=FONT_BODY, fg=fg,
+                           bg=BG, font=FONT_BODY, fg=TEXT,
                            activebackground=BG).pack(anchor="w")
 
         confirmed = {"ok": False}
