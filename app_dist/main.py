@@ -553,6 +553,7 @@ class App(tk.Tk):
             ("강의 요약 — 학습/세미나 특화", "lecture_md"),
             ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
             ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
+            ("컨퍼런스/간담회 ★신규★ — 다수 발표자 행사·세미나·라운드테이블", "conference"),
         ]:
             fg = SUCCESS if val == "ir_md" else TEXT
             tk.Radiobutton(
@@ -1438,6 +1439,9 @@ class App(tk.Tk):
         tk.Radiobutton(frm1, text="전화통화 메모 — 통화 내용 주제별 요약 + 질의응답",
                        variable=sum_mode_var, value="phone",
                        bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
+        tk.Radiobutton(frm1, text="컨퍼런스/간담회 ★신규★ — 다수 발표자 행사·세미나·라운드테이블",
+                       variable=sum_mode_var, value="conference",
+                       bg=CARD_BG, font=_FONT_OPT, fg=SUCCESS, activebackground=CARD_BG).pack(anchor="w", pady=1)
 
         # AI 엔진
         frm_ai = tk.LabelFrame(dlg, text="  AI 요약 엔진  ", font=FONT_BODY,
@@ -3734,6 +3738,7 @@ class App(tk.Tk):
             ("강의 요약 — 학습/세미나 특화", "lecture_md"),
             ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
             ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
+            ("컨퍼런스/간담회 ★신규★ — 다수 발표자 행사·세미나·라운드테이블", "conference"),
         ]:
             fg = SUCCESS if val == "ir_md" else TEXT
             tk.Radiobutton(frm, text=label, variable=sum_mode_var, value=val,
