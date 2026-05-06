@@ -1940,6 +1940,7 @@ class App(tk.Tk):
             "phone":       "전화통화메모",
             "lecture_md":  "강의요약",
             "speaker":     "주간회의",
+            "conference":  "컨퍼런스",
         }
         _mode = mode or self._pipeline_sum_mode
         mode_label = mode_label_map.get(_mode, _mode)
@@ -1963,24 +1964,23 @@ class App(tk.Tk):
                             mode: str = None) -> str:
         """Obsidian 회의록 노트 자동 생성 (저장 전 파일명 확인 다이얼로그 포함)
 
-        파일명 형식 (모드별):
-          ir_md      → YYMMDD {기업명}           예) 260408 서메어
-          formal_md  → YYMMDD {상대방명}          예) 260408 테라릭스
-          topic      → YYMMDD {미팅당사자}        예) 260408 A기관협의
-          speaker    → YYMMDD 주간회의            예) 260408 주간회의
-          phone      → YYMMDD {상대방명} 통화     예) 260408 서동조대표 통화
-          flow       → YYMMDD {상대방명} 티타임   예) 260408 서동조대표 티타임
-          lecture_md → YYMMDD {강의명} 강의       예) 260408 창업투자 강의
+        파일명 형식 (전 모드 통일 — 로컬·Drive와 동일):
+          {회사명}_{YYYYMMDD}({모드명})
+          예) 서메어_20260504(IR미팅), 테라릭스_20260504(업무미팅), 20260504(주간회의)
+
+        모드 라벨:
+          topic→회의록 / formal_md→업무미팅 / ir_md→IR미팅 / flow→티타임 /
+          phone→전화통화메모 / lecture_md→강의요약 / speaker→주간회의 /
+          conference→컨퍼런스
         """
         try:
             obsidian_dir = self._cfg.get(
                 "obsidian_meeting_dir",
                 r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\08_회의록"
             )
-            date_str = datetime.now().strftime("%y%m%d")
             mode = mode or self._pipeline_sum_mode
 
-            # ① 회의록 본문에서 상대방/기업명 자동 추출 (formal_md·topic·flow·phone)
+            # ① 회의록 본문에서 상대방/기업명 자동 추출
             # _extract_counterpart_name 은 self._pipeline_sum_mode 를 참조하므로
             # mode 가 다를 경우 임시로 교체 후 복원
             _prev_mode = self._pipeline_sum_mode
@@ -1990,40 +1990,40 @@ class App(tk.Tk):
             if mode != _prev_mode:
                 self._pipeline_sum_mode = _prev_mode
 
-            # ② save_name 정제 (fallback용): 날짜+시간 자동생성 prefix 및 불필요 suffix 제거
+            # ② save_name 정제 (fallback): 자동생성 prefix·suffix 제거
             import re as _re
             clean = _re.sub(r'^\d{8}_\d{6}_?', '', save_name).strip('_').strip()
             clean = _re.sub(r'[_ ]*(STT|회의록|녹음)$', '', clean, flags=_re.IGNORECASE).strip('_').strip()
+            # 이미 _YYYYMMDD(모드명) 형태가 붙어있으면 회사명 부분만 추출
+            clean = _re.sub(r'_\d{8}\([^)]+\)$', '', clean).strip('_').strip()
 
-            # 최종 사용 이름: 본문 자동추출 → save_name 정제값 → fallback 문자열
-            def _name(fallback: str) -> str:
-                return auto_name or clean or fallback
+            # ③ 통일 포맷: {회사명}_{YYYYMMDD}({모드명})
+            mode_label_map = {
+                "topic":       "회의록",
+                "formal_md":   "업무미팅",
+                "ir_md":       "IR미팅",
+                "flow":        "티타임",
+                "phone":       "전화통화메모",
+                "lecture_md":  "강의요약",
+                "speaker":     "주간회의",
+                "conference":  "컨퍼런스",
+            }
+            mode_label = mode_label_map.get(mode, "회의록")
+            full_date = datetime.now().strftime("%Y%m%d")
 
-            if mode == "speaker":
-                note_title = f"{date_str} 주간회의"
-
-            elif mode == "ir_md":
-                name = (self._pipeline_company_name.strip()
-                        or auto_name or clean or "IR미팅")
-                note_title = f"{date_str} {name}"
-
-            elif mode == "formal_md":
-                note_title = f"{date_str} {_name('업무미팅')}"
-
-            elif mode == "topic":
-                note_title = f"{date_str} {_name('다자협의')}"
-
-            elif mode == "phone":
-                note_title = f"{date_str} {_name('통화')} 통화"
-
-            elif mode == "flow":
-                note_title = f"{date_str} {_name('티타임')} 티타임"
-
-            elif mode == "lecture_md":
-                note_title = f"{date_str} {_name('강의')} 강의"
-
+            # 회사명/상대방 결정 — IR은 사용자 입력 우선, 그 외는 자동추출
+            if mode == "ir_md":
+                company = (self._pipeline_company_name.strip()
+                           or auto_name or clean or "")
+            elif mode == "speaker":
+                company = ""  # 주간회의는 회사명 없음
             else:
-                note_title = f"{date_str} {_name('회의록')}"
+                company = auto_name or clean or ""
+
+            if company:
+                note_title = f"{company}_{full_date}({mode_label})"
+            else:
+                note_title = f"{full_date}({mode_label})"
 
             # ③ 파일명 확인 다이얼로그 — 사용자가 수정 가능
             confirmed_title = simpledialog.askstring(
