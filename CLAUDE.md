@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **GitHub (origin, 사설)**: `antonio103first/meeting-recording-minute-app`
 - **GitHub (public, 배포용)**: `antonio103first/meeting-recording-for-pc-app`
-- **현재 버전**: v3.0.3
+- **현재 버전**: v3.0.5
 - **연관 모바일 앱**: `회의녹음요약(모바일)/meeting-recording-mobile/` (별도 Android 프로젝트)
 
 ## 핵심 기능
@@ -56,7 +56,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `lecture_md` | 강의 요약 | 업무·신앙 강의 | 템플릿.md 양식 7 + `_SUMMARY_LECTURE_MD_TEMPLATE` |
 | `conference` | 컨퍼런스/간담회 | 다수 발표자 행사·세미나·라운드테이블 (v3.2 신설) | 템플릿.md 양식 8 |
 
-> ⚠️ **코드/문서 sync 주의**: `gemini_service.py`에는 4개 템플릿(`TOPIC`, `PHONE`, `FLOW`, `LECTURE_MD`)만 코드화되어 있음. `ir_md`, `formal_md`, `speaker`, `conference` 모드는 현재 `_SUMMARY_TOPIC_TEMPLATE`로 fall-through 처리됨. 신규 모드 코드 반영 필요 시 `summarize()` dispatcher elif 분기 + 신규 `_SUMMARY_*_TEMPLATE` 변수 추가.
+> ⚠️ **코드/문서 sync 주의**: `gemini_service.py`에는 5개 템플릿(`TOPIC`, `PHONE`, `FLOW`, `LECTURE_MD`, `CONFERENCE`)이 코드화되어 있음. `ir_md`, `formal_md`, `speaker` 모드는 현재 `_SUMMARY_TOPIC_TEMPLATE`로 fall-through 처리됨. 신규 모드 코드 반영 필요 시 `summarize()` dispatcher elif 분기 + 신규 `_SUMMARY_*_TEMPLATE` 변수 추가.
+
+> ⚠️ **claude_service.py 기존 버그**: `_get_template()`에서 `_SUMMARY_SPEAKER_TEMPLATE`, `_SUMMARY_FORMAL_MD_TEMPLATE`, `_SUMMARY_FORMAL_TEXT_TEMPLATE` 등 존재하지 않는 템플릿을 import → Claude 엔진 선택 시 ImportError. 사용 시 수정 필요.
 
 ## 파일명 저장 규칙 (v3.0.3 통일)
 
@@ -76,9 +78,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - topic→회의록 / formal_md→업무미팅 / ir_md→IR미팅 / flow→티타임
 - phone→전화통화메모 / lecture_md→강의요약 / speaker→주간회의 / conference→컨퍼런스
 
-## IR 미팅회의록 Q&A 규칙 (v3.2 개정)
+## IR / 컨퍼런스 Q&A 규칙 (v3.2~v3.3 개정)
 
-다른 양식과 **다른 줄간격 규칙** 적용:
+`ir_md` 와 `conference` 양식은 다른 양식과 **다른 줄간격 규칙** 적용:
 - ❌ STT 원문 그대로 옮기지 말 것 → ✅ 핵심 의도를 1~2문장으로 **요약**
 - ✅ 모든 Q&A 빠짐없이 전수 포착 (분량 짧아도 생략 금지)
 - **Q와 A는 붙여 쓴다** (사이에 빈 줄 없음)
@@ -92,7 +94,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **A [IR회사명]** 다음 답변
 ```
 
-> 다른 양식은 종전 규칙 유지 (Q↔A 사이 빈 줄 1줄, Q&A 블록 간 빈 줄 1줄).
+> 다른 양식(`topic`, `formal_md`, `flow`, `phone`, `lecture_md`, `speaker`)은 종전 규칙 유지 (Q↔A 사이 빈 줄 1줄, Q&A 블록 간 빈 줄 1줄).
 
 ## 빌드 / 실행
 
@@ -148,6 +150,8 @@ git push public master
 | v3.0 | 7개 요약 양식 정착 |
 | v3.0.2 | 회의목록 4탭 개편 + 마크다운 뷰어 + 편집 저장 |
 | v3.0.3 | IR Q&A 규칙 개편(STT 금지·전수 요약·Q/A 붙여쓰기) + 양식 8 컨퍼런스/간담회 신설 + 3중 저장처 파일명 포맷 통일(`{회사}_{YYYYMMDD}({모드})`) |
+| v3.0.4 | 컨퍼런스 양식 코드 반영(`_SUMMARY_CONFERENCE_TEMPLATE`+dispatcher+UI 라디오) + TXT첨부 다이얼로그 높이 540→620 + 모든 라디오버튼 검은색 통일·★신규★ 마커 제거 |
+| v3.0.5 | 컨퍼런스 Q&A 줄간격 IR과 동일 규칙 적용(Q/A 붙여쓰기·A↔Q만 줄간격) + Gemini 네트워크 오류 친절 메시지 추가(errno 11001 DNS 해석 실패·10060/10061 연결거부·SSL 오류 안내) |
 
 ## 관련 프로젝트 (참고)
 
