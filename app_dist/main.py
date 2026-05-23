@@ -1986,14 +1986,9 @@ class App(tk.Tk):
                             mode: str = None, confirm: bool = True) -> str:
         """Obsidian 회의록 노트 자동 생성 (저장 전 파일명 확인 다이얼로그 포함)
 
-        파일명 형식 (전 모드 통일 — 로컬·Drive와 동일):
-          {회사명}_{YYYYMMDD}({모드명})
-          예) 서메어_20260504(IR미팅), 테라릭스_20260504(업무미팅), 20260504(주간회의)
-
-        모드 라벨:
-          topic→회의록 / formal_md→업무미팅 / ir_md→IR미팅 / flow→티타임 /
-          phone→전화통화메모 / lecture_md→강의요약 / speaker→주간회의 /
-          conference→컨퍼런스
+        파일명 형식 — 로컬 저장명과 동일:
+          {회사명}_YYYYMMDD_모드명
+          예) 서메어_20260504_IR미팅, 테라릭스_20260504_업무미팅, 20260504_주간회의
         """
         try:
             obsidian_dir = self._cfg.get(
@@ -2002,53 +1997,10 @@ class App(tk.Tk):
             )
             mode = mode or self._pipeline_sum_mode
 
-            # ① 회의록 본문에서 상대방/기업명 자동 추출
-            # _extract_counterpart_name 은 self._pipeline_sum_mode 를 참조하므로
-            # mode 가 다를 경우 임시로 교체 후 복원
-            _prev_mode = self._pipeline_sum_mode
-            if mode != _prev_mode:
-                self._pipeline_sum_mode = mode
-            auto_name = self._extract_counterpart_name(summary_text)
-            if mode != _prev_mode:
-                self._pipeline_sum_mode = _prev_mode
+            # 로컬 저장명과 동일하게 사용 (save_name이 이미 _make_default_name으로 생성된 값)
+            note_title = save_name
 
-            # ② save_name 정제 (fallback): 자동생성 prefix·suffix 제거
-            import re as _re
-            clean = _re.sub(r'^\d{8}_\d{6}_?', '', save_name).strip('_').strip()
-            clean = _re.sub(r'[_ ]*(STT|회의록|녹음)$', '', clean, flags=_re.IGNORECASE).strip('_').strip()
-            # 이미 _YYYYMMDD_모드명 또는 구형 _YYYYMMDD(모드명) 형태가 붙어있으면 회사명 부분만 추출
-            clean = _re.sub(r'_\d{8}_[^_]+$', '', clean).strip('_').strip()
-            clean = _re.sub(r'_\d{8}\([^)]+\)$', '', clean).strip('_').strip()
-
-            # ③ 통일 포맷: {회사명}_YYYYMMDD_모드명
-            mode_label_map = {
-                "topic":       "회의록",
-                "formal_md":   "업무미팅",
-                "ir_md":       "IR미팅",
-                "flow":        "티타임",
-                "phone":       "전화통화메모",
-                "lecture_md":  "강의요약",
-                "speaker":     "주간회의",
-                "conference":  "컨퍼런스",
-            }
-            mode_label = mode_label_map.get(mode, "회의록")
-            full_date = datetime.now().strftime("%Y%m%d")
-
-            # 회사명/상대방 결정 — IR은 사용자 입력 우선, 그 외는 자동추출
-            if mode == "ir_md":
-                company = (self._pipeline_company_name.strip()
-                           or auto_name or clean or "")
-            elif mode == "speaker":
-                company = ""  # 주간회의는 회사명 없음
-            else:
-                company = auto_name or clean or ""
-
-            if company:
-                note_title = f"{company}_{full_date}_{mode_label}"
-            else:
-                note_title = f"{full_date}_{mode_label}"
-
-            # ③ 파일명 확인 (confirm=True 시 다이얼로그, False 시 자동 저장)
+            # 파일명 확인 (confirm=True 시 다이얼로그, False 시 자동 저장)
             if confirm:
                 confirmed_title = simpledialog.askstring(
                     "Obsidian 저장 — 파일명 확인",
