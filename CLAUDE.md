@@ -153,6 +153,7 @@ git push public master
 | v3.0.4 | 컨퍼런스 양식 코드 반영(`_SUMMARY_CONFERENCE_TEMPLATE`+dispatcher+UI 라디오) + TXT첨부 다이얼로그 높이 540→620 + 모든 라디오버튼 검은색 통일·★신규★ 마커 제거 |
 | v3.0.5 | 컨퍼런스 Q&A 줄간격 IR과 동일 규칙 적용(Q/A 붙여쓰기·A↔Q만 줄간격) + Gemini 네트워크 오류 친절 메시지 추가(errno 11001 DNS 해석 실패·10060/10061 연결거부·SSL 오류 안내) |
 | v3.0.6 | 8개 전 양식 Q&A 규칙 통일 (TOPIC/PHONE/FLOW/LECTURE_MD/CONFERENCE 코드 + 회의록템플릿.md 양식 1~7) — STT 원문 금지·핵심 요약·Q/A 붙여쓰기·A↔Q만 줄간격 |
+| v3.0.7 | 회의록(업무) `_SUMMARY_FORMAL_MD_TEMPLATE` 전용 코드화 (양식 3 Q&A 요약 규칙 포함) + Obsidian 자동저장 다이얼로그 제거(confirm=False, 결과 messagebox 표시) + 회의록 일시 녹음파일 생성시간 기준 통일(`dt_override`) + `claude_service` 임포트 오류 수정 |
 
 ## 관련 프로젝트 (참고)
 

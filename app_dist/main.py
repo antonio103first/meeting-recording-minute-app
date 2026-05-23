@@ -1491,6 +1491,14 @@ class App(tk.Tk):
             return
 
         # ⑤ 요약 실행 (STT 단계 건너뛰고 바로 요약)
+        # TXT 파일 생성시간을 dt_override로 사용
+        _txt_dt = ""
+        try:
+            _ctime = os.path.getctime(path)
+            _txt_dt = datetime.fromtimestamp(_ctime).strftime("%Y년 %m월 %d일 %H:%M")
+        except Exception:
+            pass
+
         self._processing = True
         self._cancel_event.clear()
         self._btn_pipeline.config(state="disabled")
@@ -1500,7 +1508,7 @@ class App(tk.Tk):
         self._sum_box.delete("1.0", "end")
         self._sum_status_var.set("")
         self._save_status_var.set("처리 중...")
-        self._start_pipeline_summary(stt_text)
+        self._start_pipeline_summary(stt_text, dt_override=_txt_dt)
 
     def _start_pipeline(self):
         """[▶ 변환 시작] 버튼 → 파이프라인 시작"""
@@ -1672,7 +1680,7 @@ class App(tk.Tk):
         self._btn(btn_row, "건너뛰기", TEXT_LIGHT, _skip, w=10).pack(side="left", padx=6)
         dlg.protocol("WM_DELETE_WINDOW", _skip)
 
-    def _start_pipeline_summary(self, stt_text: str):
+    def _start_pipeline_summary(self, stt_text: str, dt_override: str = ""):
         """④ 요약 자동 시작"""
         if self._cancel_event.is_set():
             self._processing = False
@@ -1694,6 +1702,14 @@ class App(tk.Tk):
 
         prev_notes = self._get_obsidian_notes_content()
 
+        # 녹음파일 생성시간으로 dt_override 결정 (미전달 시 MP3 생성시간 자동 사용)
+        if not dt_override and self._current_mp3 and os.path.exists(self._current_mp3):
+            try:
+                ctime = os.path.getctime(self._current_mp3)
+                dt_override = datetime.fromtimestamp(ctime).strftime("%Y년 %m월 %d일 %H:%M")
+            except Exception:
+                pass
+
         def run_sum():
             if self._pipeline_ai_engine == "claude":
                 cl_key = self._cfg.get("claude_api_key", "")
@@ -1703,6 +1719,7 @@ class App(tk.Tk):
                     summary_mode=self._pipeline_sum_mode,
                     cancel_event=self._cancel_event,
                     custom_instruction=custom_inst,
+                    dt_override=dt_override,
                 )
             elif self._pipeline_ai_engine == "chatgpt":
                 gpt_key = self._cfg.get("chatgpt_api_key", "")
@@ -1712,6 +1729,7 @@ class App(tk.Tk):
                     summary_mode=self._pipeline_sum_mode,
                     cancel_event=self._cancel_event,
                     custom_instruction=custom_inst,
+                    dt_override=dt_override,
                 )
             else:
                 ok, text = gemini.summarize(
@@ -1722,6 +1740,7 @@ class App(tk.Tk):
                     custom_instruction=custom_inst,
                     company_name=self._pipeline_company_name,
                     prev_notes=prev_notes,
+                    dt_override=dt_override,
                 )
             self.after(0, lambda: self._on_pipeline_summary_done(ok, text, stt_text))
 
@@ -1879,9 +1898,9 @@ class App(tk.Tk):
             msgs.append(f"✅ DB 저장 완료 (ID: {mid})")
         self._refresh_list()
 
-        # Obsidian 노트 자동 생성
+        # Obsidian 노트 자동 생성 (confirm=False: 다이얼로그 없이 바로 저장)
         if text and self._cfg.get("obsidian_auto_save", True):
-            obs_result = self._save_obsidian_note(text, save_name)
+            obs_result = self._save_obsidian_note(text, save_name, confirm=False)
             msgs.append(obs_result)
 
         # 저장 상태 표시
@@ -1964,7 +1983,7 @@ class App(tk.Tk):
         return f"{date_str}({mode_label})"
 
     def _save_obsidian_note(self, summary_text: str, save_name: str,
-                            mode: str = None) -> str:
+                            mode: str = None, confirm: bool = True) -> str:
         """Obsidian 회의록 노트 자동 생성 (저장 전 파일명 확인 다이얼로그 포함)
 
         파일명 형식 (전 모드 통일 — 로컬·Drive와 동일):
@@ -2028,17 +2047,19 @@ class App(tk.Tk):
             else:
                 note_title = f"{full_date}({mode_label})"
 
-            # ③ 파일명 확인 다이얼로그 — 사용자가 수정 가능
-            confirmed_title = simpledialog.askstring(
-                "Obsidian 저장 — 파일명 확인",
-                "저장할 파일명을 확인하거나 수정하세요.\n(.md 확장자 자동 추가)",
-                initialvalue=note_title,
-                parent=self,
-            )
-            if not confirmed_title or not confirmed_title.strip():
-                return "📓 Obsidian 저장 취소됨"
-
-            confirmed_title = confirmed_title.strip()
+            # ③ 파일명 확인 (confirm=True 시 다이얼로그, False 시 자동 저장)
+            if confirm:
+                confirmed_title = simpledialog.askstring(
+                    "Obsidian 저장 — 파일명 확인",
+                    "저장할 파일명을 확인하거나 수정하세요.\n(.md 확장자 자동 추가)",
+                    initialvalue=note_title,
+                    parent=self,
+                )
+                if not confirmed_title or not confirmed_title.strip():
+                    return "📓 Obsidian 저장 취소됨"
+                confirmed_title = confirmed_title.strip()
+            else:
+                confirmed_title = note_title
             # 파일명에 사용 불가한 문자 제거
             confirmed_title = _re.sub(r'[\\/:*?"<>|]', '_', confirmed_title)
 
@@ -2085,6 +2106,16 @@ class App(tk.Tk):
 
         prev_notes = self._get_obsidian_notes_content()
 
+        # 현재 MP3 파일 생성시간으로 dt_override 결정
+        _rs_dt = ""
+        if self._current_mp3 and os.path.exists(self._current_mp3):
+            try:
+                _rs_dt = datetime.fromtimestamp(
+                    os.path.getctime(self._current_mp3)
+                ).strftime("%Y년 %m월 %d일 %H:%M")
+            except Exception:
+                pass
+
         def run():
             if self._pipeline_ai_engine == "claude":
                 cl_key = self._cfg.get("claude_api_key", "")
@@ -2094,6 +2125,7 @@ class App(tk.Tk):
                     summary_mode=self._pipeline_sum_mode,
                     cancel_event=self._cancel_event,
                     custom_instruction=custom_text,
+                    dt_override=_rs_dt,
                 )
             elif self._pipeline_ai_engine == "chatgpt":
                 gpt_key = self._cfg.get("chatgpt_api_key", "")
@@ -2103,6 +2135,7 @@ class App(tk.Tk):
                     summary_mode=self._pipeline_sum_mode,
                     cancel_event=self._cancel_event,
                     custom_instruction=custom_text,
+                    dt_override=_rs_dt,
                 )
             else:
                 ok, text = gemini.summarize(
@@ -2113,6 +2146,7 @@ class App(tk.Tk):
                     custom_instruction=custom_text,
                     company_name=self._pipeline_company_name,
                     prev_notes=prev_notes,
+                    dt_override=_rs_dt,
                 )
             self.after(0, lambda: self._on_resummarize_done(ok, text))
 
@@ -2236,7 +2270,8 @@ class App(tk.Tk):
 
     def _summarize_with_chatgpt(self, stt_text: str, api_key: str,
                                  progress_cb=None, summary_mode: str = "speaker",
-                                 cancel_event=None, custom_instruction: str = "") -> tuple:
+                                 cancel_event=None, custom_instruction: str = "",
+                                 dt_override: str = "") -> tuple:
         """ChatGPT (OpenAI) 요약 — claude_service 패턴 준용"""
         if not api_key:
             return False, "ChatGPT API 키가 없습니다. 설정 탭에서 입력해주세요."
@@ -2256,9 +2291,10 @@ class App(tk.Tk):
                 return False, "사용자에 의해 중단되었습니다."
 
             from datetime import datetime as _dt
+            _dt_str = dt_override if dt_override else _dt.now().strftime("%Y년 %m월 %d일 %H:%M")
             prompt = template.format(
                 text=stt_text[:300000],
-                dt=_dt.now().strftime("%Y년 %m월 %d일 %H:%M"),
+                dt=_dt_str,
             )
             if custom_instruction and custom_instruction.strip():
                 prompt += f"\n\n[추가 지시사항]\n{custom_instruction.strip()}"
@@ -3771,6 +3807,14 @@ class App(tk.Tk):
             messagebox.showerror("오류", f"STT 파일 읽기 실패: {e}")
             return
 
+        # STT 파일 생성시간 → 회의록 일시 기준
+        _b_dt = ""
+        try:
+            _b_ctime = os.path.getctime(self._b_stt_path)
+            _b_dt = datetime.fromtimestamp(_b_ctime).strftime("%Y년 %m월 %d일 %H:%M")
+        except Exception:
+            pass
+
         # 커스텀 프롬프트 (1회성)
         custom_inst = self._b_custom_prompt.get().strip()
         # 설정 탭 전역 프롬프트 + 1회성 프롬프트 결합
@@ -3811,20 +3855,23 @@ class App(tk.Tk):
                     stt_text, self._cfg.get("claude_api_key"),
                     progress_cb=prog, summary_mode=chosen_mode,
                     cancel_event=self._b_cancel_event,
-                    custom_instruction=combined_inst)
+                    custom_instruction=combined_inst,
+                    dt_override=_b_dt)
             elif engine == "chatgpt" and has_chatgpt:
                 ok, result = self._summarize_with_chatgpt(
                     stt_text, self._cfg.get("chatgpt_api_key"),
                     progress_cb=prog, summary_mode=chosen_mode,
                     cancel_event=self._b_cancel_event,
-                    custom_instruction=combined_inst)
+                    custom_instruction=combined_inst,
+                    dt_override=_b_dt)
             else:
                 ok, result = gs.summarize(
                     stt_text, self._cfg.get("gemini_api_key", ""),
                     progress_cb=prog, summary_mode=chosen_mode,
                     cancel_event=self._b_cancel_event,
                     custom_instruction=combined_inst,
-                    company_name=chosen_company_name)
+                    company_name=chosen_company_name,
+                    dt_override=_b_dt)
 
             if self._b_cancel_event.is_set():
                 self.after(0, lambda: self._b_status_var.set("중지되었습니다."))
@@ -3886,19 +3933,22 @@ class App(tk.Tk):
             # 회의목록 갱신
             self._refresh_list()
 
-            # Obsidian 저장 (자동 저장 ON인 경우)
+            # Obsidian 저장 (자동 저장 ON인 경우, 다이얼로그 없이 자동 저장)
+            obs_msg = ""
             if self._cfg.get("obsidian_auto_save", True):
                 obs_result = self._save_obsidian_note(
                     summary_text,
                     Path(out_path).stem,
                     mode=sum_mode or self._pipeline_sum_mode,
+                    confirm=False,
                 )
+                obs_msg = f"\n{obs_result}"
                 self._b_status_var.set(
                     self._b_status_var.get() + f"  |  {obs_result}"
                 )
 
             if messagebox.askyesno("저장 완료",
-                                   f"회의록이 저장되었습니다.\n\n{out_path}\n\n파일 위치를 탐색기에서 열겠습니까?"):
+                                   f"회의록이 저장되었습니다.\n\n{out_path}{obs_msg}\n\n파일 위치를 탐색기에서 열겠습니까?"):
                 import file_manager as fm
                 fm.open_file_in_explorer(out_path)
         except Exception as e:

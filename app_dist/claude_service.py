@@ -11,26 +11,27 @@ CLAUDE_MODEL = "claude-sonnet-4-6"
 
 def _get_template(summary_mode: str):
     from gemini_service import (
-        _SUMMARY_SPEAKER_TEMPLATE,
         _SUMMARY_TOPIC_TEMPLATE,
         _SUMMARY_FORMAL_MD_TEMPLATE,
-        _SUMMARY_FORMAL_TEXT_TEMPLATE,
         _SUMMARY_LECTURE_MD_TEMPLATE,
         _SUMMARY_FLOW_TEMPLATE,
+        _SUMMARY_PHONE_TEMPLATE,
+        _SUMMARY_CONFERENCE_TEMPLATE,
         _trim_summary,
     )
-    if summary_mode == "topic":
-        return _SUMMARY_TOPIC_TEMPLATE, _trim_summary
-    elif summary_mode == "formal_md":
+    if summary_mode == "formal_md":
         return _SUMMARY_FORMAL_MD_TEMPLATE, _trim_summary
-    elif summary_mode in ("formal_text", "formal"):
-        return _SUMMARY_FORMAL_TEXT_TEMPLATE, _trim_summary
     elif summary_mode == "lecture_md":
         return _SUMMARY_LECTURE_MD_TEMPLATE, _trim_summary
     elif summary_mode == "flow":
         return _SUMMARY_FLOW_TEMPLATE, _trim_summary
+    elif summary_mode == "phone":
+        return _SUMMARY_PHONE_TEMPLATE, _trim_summary
+    elif summary_mode == "conference":
+        return _SUMMARY_CONFERENCE_TEMPLATE, _trim_summary
     else:
-        return _SUMMARY_SPEAKER_TEMPLATE, _trim_summary
+        # speaker, topic, ir_md 등 → topic 기본값
+        return _SUMMARY_TOPIC_TEMPLATE, _trim_summary
 
 
 def test_connection(api_key: str) -> tuple:
@@ -52,7 +53,8 @@ def test_connection(api_key: str) -> tuple:
 
 def summarize(stt_text: str, api_key: str, progress_cb=None,
               summary_mode: str = "speaker", cancel_event=None,
-              custom_instruction: str = "") -> tuple:
+              custom_instruction: str = "",
+              dt_override: str = "") -> tuple:
     """STT 텍스트 → 회의록 요약 (Claude API)"""
     if not api_key:
         return False, "Claude API 키가 없습니다. 설정 탭에서 입력해주세요."
@@ -71,9 +73,10 @@ def summarize(stt_text: str, api_key: str, progress_cb=None,
         if cancel_event and cancel_event.is_set():
             return False, "사용자에 의해 중단되었습니다."
 
+        dt_str = dt_override if dt_override else datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
         prompt = template.format(
             text=stt_text[:500000],
-            dt=datetime.now().strftime("%Y년 %m월 %d일 %H:%M"),
+            dt=dt_str,
         )
         if custom_instruction and custom_instruction.strip():
             prompt += f"\n\n[추가 지시사항]\n{custom_instruction.strip()}"
