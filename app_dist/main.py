@@ -1952,7 +1952,7 @@ class App(tk.Tk):
         return ""
 
     def _make_default_name(self, summary_text: str = "", mode: str = None) -> str:
-        """기본 파일명 생성: {제목}_{YYYYMMDD}({모드명})
+        """기본 파일명 생성: {제목}_YYYYMMDD_모드명
         제목은 요약 본문에서 자동 추출. 추출 불가 시 날짜만 사용."""
         mode_label_map = {
             "topic":       "회의록",
@@ -1979,8 +1979,8 @@ class App(tk.Tk):
                 self._pipeline_sum_mode = _prev
 
         if title:
-            return f"{title}_{date_str}({mode_label})"
-        return f"{date_str}({mode_label})"
+            return f"{title}_{date_str}_{mode_label}"
+        return f"{date_str}_{mode_label}"
 
     def _save_obsidian_note(self, summary_text: str, save_name: str,
                             mode: str = None, confirm: bool = True) -> str:
@@ -2016,10 +2016,11 @@ class App(tk.Tk):
             import re as _re
             clean = _re.sub(r'^\d{8}_\d{6}_?', '', save_name).strip('_').strip()
             clean = _re.sub(r'[_ ]*(STT|회의록|녹음)$', '', clean, flags=_re.IGNORECASE).strip('_').strip()
-            # 이미 _YYYYMMDD(모드명) 형태가 붙어있으면 회사명 부분만 추출
+            # 이미 _YYYYMMDD_모드명 또는 구형 _YYYYMMDD(모드명) 형태가 붙어있으면 회사명 부분만 추출
+            clean = _re.sub(r'_\d{8}_[^_]+$', '', clean).strip('_').strip()
             clean = _re.sub(r'_\d{8}\([^)]+\)$', '', clean).strip('_').strip()
 
-            # ③ 통일 포맷: {회사명}_{YYYYMMDD}({모드명})
+            # ③ 통일 포맷: {회사명}_YYYYMMDD_모드명
             mode_label_map = {
                 "topic":       "회의록",
                 "formal_md":   "업무미팅",
@@ -2043,9 +2044,9 @@ class App(tk.Tk):
                 company = auto_name or clean or ""
 
             if company:
-                note_title = f"{company}_{full_date}({mode_label})"
+                note_title = f"{company}_{full_date}_{mode_label}"
             else:
-                note_title = f"{full_date}({mode_label})"
+                note_title = f"{full_date}_{mode_label}"
 
             # ③ 파일명 확인 (confirm=True 시 다이얼로그, False 시 자동 저장)
             if confirm:
