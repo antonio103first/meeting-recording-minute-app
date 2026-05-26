@@ -2014,7 +2014,7 @@ class App(tk.Tk):
             else:
                 confirmed_title = note_title
             # 파일명에 사용 불가한 문자 제거
-            confirmed_title = _re.sub(r'[\\/:*?"<>|]', '_', confirmed_title)
+            confirmed_title = re.sub(r'[\\/:*?"<>|]', '_', confirmed_title)
 
             note_filename = confirmed_title + ".md"
             note_path = os.path.join(obsidian_dir, note_filename)
