@@ -1991,10 +1991,8 @@ class App(tk.Tk):
           예) 서메어_20260504_IR미팅, 테라릭스_20260504_업무미팅, 20260504_주간회의
         """
         try:
-            obsidian_dir = self._cfg.get(
-                "obsidian_meeting_dir",
-                r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\08_회의록"
-            )
+            _OBSIDIAN_DEFAULT = r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\08_회의록"
+            obsidian_dir = (self._cfg.get("obsidian_meeting_dir") or "").strip() or _OBSIDIAN_DEFAULT
             mode = mode or self._pipeline_sum_mode
 
             # 로컬 저장명과 동일하게 사용 (save_name이 이미 _make_default_name으로 생성된 값)

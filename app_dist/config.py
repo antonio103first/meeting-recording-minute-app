@@ -159,6 +159,7 @@ def load_config() -> dict:
         "mp3_full_path": "",        # 비어있으면 recording_dir+mp3_subdir 사용
         "stt_full_path": "",        # 비어있으면 recording_dir+stt_subdir 사용
         "sum_full_path": "",        # 비어있으면 recording_dir+summary_subdir 사용
+        "obsidian_meeting_dir": r"C:\Users\anton\Documents\Obsidian_KRUN_Antonio\08_회의록",
     }
 
 
