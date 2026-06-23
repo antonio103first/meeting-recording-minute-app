@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **GitHub (origin, 사설)**: `antonio103first/meeting-recording-minute-app`
 - **GitHub (public, 배포용)**: `antonio103first/meeting-recording-for-pc-app`
-- **현재 버전**: v3.0.6
+- **현재 버전**: v3.0.9
 - **연관 모바일 앱**: `회의녹음요약(모바일)/meeting-recording-mobile/` (별도 Android 프로젝트)
 
 ## 핵심 기능
@@ -155,6 +155,7 @@ git push public master
 | v3.0.6 | 8개 전 양식 Q&A 규칙 통일 (TOPIC/PHONE/FLOW/LECTURE_MD/CONFERENCE 코드 + 회의록템플릿.md 양식 1~7) — STT 원문 금지·핵심 요약·Q/A 붙여쓰기·A↔Q만 줄간격 |
 | v3.0.7 | 회의록(업무) `_SUMMARY_FORMAL_MD_TEMPLATE` 전용 코드화 (양식 3 Q&A 요약 규칙 포함) + Obsidian 자동저장 다이얼로그 제거(confirm=False, 결과 messagebox 표시) + 회의록 일시 녹음파일 생성시간 기준 통일(`dt_override`) + `claude_service` 임포트 오류 수정 |
 | v3.0.8 | 파일 기본 저장명 포맷 변경: `{회사}_{YYYYMMDD}({모드})` → `{회사}_YYYYMMDD_모드` (괄호 제거, 언더스코어 구분) — PC 앱 + 모바일 앱(FileManager.kt) 동시 적용; Obsidian 저장명 로컬 저장명과 완전 일치 |
+| v3.0.9 | 회의록(업무) `_SUMMARY_FORMAL_MD_TEMPLATE` 구조 전환: Q&A 나열 중심 → **주제·내용 중심 서술**이 기본, Q&A는 주요사항(핵심 쟁점·확인사항·중요 의사결정) 보완용으로만 선택적 사용. gemini_service.py + claude_service.py(import 자동반영) + 회의녹음요약_회의록템플릿.md 양식 3 동기화 |
 
 ## 관련 프로젝트 (참고)
 
