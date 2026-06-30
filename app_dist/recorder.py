@@ -133,6 +133,9 @@ class AudioRecorder:
             try:
                 r = subprocess.run(
                     [FFMPEG_PATH, "-y", "-i", wav_path,
+                     # ★ 자동 음량 정규화 — 작게 녹음돼도 음성을 일정 크기로 끌어올림(모바일 AGC와 동일 목적).
+                     #   dynaudnorm: 구간별 동적 정규화(조용한 발화 boost, 큰 소리 제한). 잡음 과증폭 방지 위해 maxgain 제한.
+                     "-af", "dynaudnorm=f=300:m=15:p=0.9:g=15",
                      "-codec:a", "libmp3lame",
                      "-b:a", "32k",      # 음성 최적화: 2시간 약 29MB
                      "-ar", "16000",     # 샘플레이트 16kHz (STT 표준)
