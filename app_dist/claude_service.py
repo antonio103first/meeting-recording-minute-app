@@ -17,6 +17,9 @@ def _get_template(summary_mode: str):
         _SUMMARY_FLOW_TEMPLATE,
         _SUMMARY_PHONE_TEMPLATE,
         _SUMMARY_CONFERENCE_TEMPLATE,
+        _SUMMARY_SPEAKER_TEMPLATE,
+        _SUMMARY_IR_MD_TEMPLATE,
+        _SUMMARY_ORG_TEMPLATE,
         _trim_summary,
     )
     if summary_mode == "formal_md":
@@ -29,8 +32,14 @@ def _get_template(summary_mode: str):
         return _SUMMARY_PHONE_TEMPLATE, _trim_summary
     elif summary_mode == "conference":
         return _SUMMARY_CONFERENCE_TEMPLATE, _trim_summary
+    elif summary_mode == "speaker":
+        return _SUMMARY_SPEAKER_TEMPLATE, _trim_summary
+    elif summary_mode == "ir_md":
+        return _SUMMARY_IR_MD_TEMPLATE, _trim_summary
+    elif summary_mode == "org":
+        return _SUMMARY_ORG_TEMPLATE, _trim_summary
     else:
-        # speaker, topic, ir_md 등 → topic 기본값
+        # topic 기본값
         return _SUMMARY_TOPIC_TEMPLATE, _trim_summary
 
 

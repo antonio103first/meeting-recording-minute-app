@@ -554,6 +554,7 @@ class App(tk.Tk):
             ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
             ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
             ("컨퍼런스/간담회 — 다수 발표자 행사·세미나·라운드테이블", "conference"),
+            ("본당/단체 회의 — 본당 상임위·단체·학교 등 부서/분과(비영리)", "org"),
         ]:
             tk.Radiobutton(
                 sm_card, text=label,
@@ -1441,6 +1442,9 @@ class App(tk.Tk):
         tk.Radiobutton(frm1, text="컨퍼런스/간담회 — 다수 발표자 행사·세미나·라운드테이블",
                        variable=sum_mode_var, value="conference",
                        bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
+        tk.Radiobutton(frm1, text="본당/단체 회의 — 본당 상임위·단체 등 부서/분과(비영리)",
+                       variable=sum_mode_var, value="org",
+                       bg=CARD_BG, font=_FONT_OPT, fg=TEXT, activebackground=CARD_BG).pack(anchor="w", pady=1)
 
         # AI 엔진
         frm_ai = tk.LabelFrame(dlg, text="  AI 요약 엔진  ", font=FONT_BODY,
@@ -1963,6 +1967,7 @@ class App(tk.Tk):
             "lecture_md":  "강의요약",
             "speaker":     "주간회의",
             "conference":  "컨퍼런스",
+            "org":         "단체회의",
         }
         _mode = mode or self._pipeline_sum_mode
         mode_label = mode_label_map.get(_mode, _mode)
@@ -3725,6 +3730,7 @@ class App(tk.Tk):
             ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
             ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
             ("컨퍼런스/간담회 — 다수 발표자 행사·세미나·라운드테이블", "conference"),
+            ("본당/단체 회의 — 본당 상임위·단체·학교 등 부서/분과(비영리)", "org"),
         ]:
             tk.Radiobutton(frm, text=label, variable=sum_mode_var, value=val,
                            bg=BG, font=FONT_BODY, fg=TEXT,
