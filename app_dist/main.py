@@ -104,6 +104,7 @@ class App(tk.Tk):
         self._pipeline_ai_engine   = self._cfg.get("summary_engine", "gemini")  # "gemini" | "claude" | "chatgpt"
         self._pipeline_company_name = ""  # IR 미팅 모드 전용: 혁신의숲 API 조회 기업명
         self._pipeline_stt_engine  = self._cfg.get("stt_engine", "gemini")      # "gemini" | "clova"
+        self._pipeline_stt_engine_used = ""   # ★ v3.1.4: 실제 STT 엔진(폴백 반영, 회의록 표기용)
         self._pipeline_rename_spk  = False
         self._current_sum_path     = None
         self._metrics_text         = ""
@@ -1581,8 +1582,20 @@ class App(tk.Tk):
         self._save_status_var.set("처리 중...")
 
         def run_stt():
-            if self._pipeline_stt_engine == "clova":
-                ok, text = clova.transcribe(
+            # ★ v3.1.4: STT 안정화 — 네트워크성 오류 재시도 + Clova 실패 시 Gemini 자동 폴백(모바일 v3.7.20/21 대응)
+            import time as _t
+            gkey = self._cfg.get("gemini_api_key", "")
+            engine = self._pipeline_stt_engine
+            used = ""
+            ok, text = False, ""
+
+            def _is_net_err(m):
+                m = (m or "").lower()
+                return any(k in m for k in ("abort", "socket", "timeout", "시간 초과", "네트워크",
+                    "연결", "reset", "ssl", "resolve host", "econn", "broken pipe", "connection"))
+
+            def _do_clova():
+                return clova.transcribe(
                     self._current_mp3,
                     invoke_url=self._cfg.get("clova_invoke_url", ""),
                     secret_key=self._cfg.get("clova_secret_key", ""),
@@ -1591,16 +1604,46 @@ class App(tk.Tk):
                     cancel_event=self._cancel_event,
                     status_cb=lambda msg: self.after(0, lambda: self._stt_status_var.set(msg)),
                 )
-            else:
-                ok, text = gemini.transcribe(
-                    self._current_mp3,
-                    self._cfg.get("gemini_api_key", ""),
+
+            def _do_gemini():
+                return gemini.transcribe(
+                    self._current_mp3, gkey,
                     progress_cb=lambda v: self.after(0, lambda: self._set_prog(self._stt_prog, v)),
-                    num_speakers=num_spk,
-                    speaker_names={},
+                    num_speakers=num_spk, speaker_names={},
                     cancel_event=self._cancel_event,
                     status_cb=lambda msg: self.after(0, lambda: self._stt_status_var.set(msg)),
                 )
+
+            if engine == "clova":
+                for attempt in range(1, 4):
+                    if attempt > 1:
+                        self.after(0, lambda a=attempt: self._stt_status_var.set(f"CLOVA STT 재시도 ({a}/3)…"))
+                        _t.sleep(3 if attempt == 2 else 8)
+                    try:
+                        ok, text = _do_clova()
+                    except Exception as e:
+                        ok, text = False, f"STT 오류: {e}"
+                    if ok:
+                        used = "Clova"; break
+                    if not _is_net_err(text):
+                        break
+                if not ok and gkey:  # Clova 재시도 모두 실패 + Gemini 키 있으면 자동 폴백(청크 전사)
+                    self.after(0, lambda: self._stt_status_var.set("CLOVA 실패 → Gemini STT로 자동 전환(청크)…"))
+                    try:
+                        ok, text = _do_gemini()
+                    except Exception as e:
+                        ok, text = False, f"STT 오류: {e}"
+                    if ok:
+                        used = "Gemini (Clova 실패 자동 폴백)"
+            else:
+                try:
+                    ok, text = _do_gemini()
+                except Exception as e:
+                    ok, text = False, f"STT 오류: {e}"
+                if ok:
+                    used = "Gemini"
+
+            self._pipeline_stt_engine_used = used
             self.after(0, lambda: self._on_pipeline_stt_done(ok, text))
 
         threading.Thread(target=run_stt, daemon=True).start()
@@ -1762,6 +1805,11 @@ class App(tk.Tk):
             self._sum_status_var.set(f"❌ 요약 실패: {text[:60]}")
             messagebox.showerror("요약 오류", text)
             return
+
+        # ★ v3.1.4: 회의록 끝에 STT 엔진 표기(폴백 반영)
+        used = getattr(self, "_pipeline_stt_engine_used", "")
+        if used:
+            text = text.rstrip() + f"\n\n---\n*STT 엔진: {used}*"
 
         # 요약 결과 표시
         self._summary_text = text
