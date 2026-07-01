@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **GitHub (origin, 사설)**: `antonio103first/meeting-recording-minute-app`
 - **GitHub (public, 배포용)**: `antonio103first/meeting-recording-for-pc-app`
-- **현재 버전**: v3.1.1
+- **현재 버전**: v3.1.2
 - **연관 모바일 앱**: `회의녹음요약(모바일)/meeting-recording-mobile/` (별도 Android 프로젝트)
 
 ## 핵심 기능
@@ -156,6 +156,7 @@ git push public master
 | v3.0.7 | 회의록(업무) `_SUMMARY_FORMAL_MD_TEMPLATE` 전용 코드화 (양식 3 Q&A 요약 규칙 포함) + Obsidian 자동저장 다이얼로그 제거(confirm=False, 결과 messagebox 표시) + 회의록 일시 녹음파일 생성시간 기준 통일(`dt_override`) + `claude_service` 임포트 오류 수정 |
 | v3.0.8 | 파일 기본 저장명 포맷 변경: `{회사}_{YYYYMMDD}({모드})` → `{회사}_YYYYMMDD_모드` (괄호 제거, 언더스코어 구분) — PC 앱 + 모바일 앱(FileManager.kt) 동시 적용; Obsidian 저장명 로컬 저장명과 완전 일치 |
 | v3.0.9 | 회의록(업무) `_SUMMARY_FORMAL_MD_TEMPLATE` 구조 전환: Q&A 나열 중심 → **주제·내용 중심 서술**이 기본, Q&A는 주요사항(핵심 쟁점·확인사항·중요 의사결정) 보완용으로만 선택적 사용. gemini_service.py + claude_service.py(import 자동반영) + 회의녹음요약_회의록템플릿.md 양식 3 동기화 |
+| v3.1.2 | **프롬프트 통일 1단계 — 주체 표기 통일**: PC↔모바일 회의록 프롬프트 통일 작업 일부. PC `gemini_service.py`의 화자 주체 표기를 `[나]`(17곳)에서 **양식군별로 통일** — 다자간협의·회의록업무=`[케이런]`, 전화통화·네트워킹=`[Antonio]`. `(화자 N)` 병기 금지 규칙 추가, 푸터 `회의록 앱`→`회의녹음요약 앱` 통일. `[나]` 0개 확인·Python 파싱 OK. 모바일은 이미 양식군별 표기 + Q&A 임의생성 금지 규율 이식(모바일 v3.7.19). **남은 통일: PC에 주간회의·IR미팅·본당(org) 양식 신설 + main.py UI 배선 + exe 재빌드**(별도 작업). |
 | v3.1.1 | **녹음 음량 자동 정규화(dynaudnorm)**: PC 녹음이 작게 담겨도 음성을 일정 크기로 끌어올리도록 `recorder.py`(app_dist + app 레거시 양쪽)의 WAV→MP3 ffmpeg 변환에 `-af dynaudnorm=f=300:m=15:p=0.9:g=15` 추가. 모바일 v3.7.16(녹음 음량 근본 해결)과 동일 목적의 PC 대응 — 모바일은 음원 변경+소프트웨어 AGC, PC는 ffmpeg 동적 정규화. 실측: 조용한 샘플 -19.4dB→-7.9dB peak. |
 | v3.1.0 | **회의록 요약 템플릿 정밀화 (전 양식 공통)**: `gemini_service.py`의 6개 코드 템플릿(TOPIC·PHONE·FLOW·LECTURE_MD·CONFERENCE·FORMAL_MD; speaker·ir_md는 TOPIC 공유)에 `[공통 정밀화 규칙]` 3종 삽입 — ① **사실 충실성**(녹취에 없는 회사명·숫자·인명 창작 금지, 불확실하면 비워 둠), ② **화자 분리 불신**(STT diarization이 한 화자로 몰리거나 오배정될 수 있으므로 화자 태그가 아닌 내용·문맥으로 판단, 불분명 시 `[불명확]`), ③ **STT 오인식 표기**(`*(STT 오인식 의심)*`). claude_service.py는 import 자동 반영. 캐노니컬 문서 `회의녹음요약_회의록템플릿.md` `## 공통 작성 원칙`에 6~8항 동기화(전 8양식 적용). 모바일 앱 v3.7.8과 동시 반영. 배경: 2인 티타임 녹음이 화자 분리 실패로 한 화자에 몰려 요약이 화자 귀속·Q&A를 추측으로 메우던 문제 |
 
