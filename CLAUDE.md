@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **GitHub (origin, 사설)**: `antonio103first/meeting-recording-minute-app`
 - **GitHub (public, 배포용)**: `antonio103first/meeting-recording-for-pc-app`
-- **현재 버전**: v3.1.4
+- **현재 버전**: v3.1.5
 - **연관 모바일 앱**: `회의녹음요약(모바일)/meeting-recording-mobile/` (별도 Android 프로젝트)
 
 ## 핵심 기능
@@ -154,6 +154,7 @@ git push public master
 | v3.0.7 | 회의록(업무) `_SUMMARY_FORMAL_MD_TEMPLATE` 전용 코드화 (양식 3 Q&A 요약 규칙 포함) + Obsidian 자동저장 다이얼로그 제거(confirm=False, 결과 messagebox 표시) + 회의록 일시 녹음파일 생성시간 기준 통일(`dt_override`) + `claude_service` 임포트 오류 수정 |
 | v3.0.8 | 파일 기본 저장명 포맷 변경: `{회사}_{YYYYMMDD}({모드})` → `{회사}_YYYYMMDD_모드` (괄호 제거, 언더스코어 구분) — PC 앱 + 모바일 앱(FileManager.kt) 동시 적용; Obsidian 저장명 로컬 저장명과 완전 일치 |
 | v3.0.9 | 회의록(업무) `_SUMMARY_FORMAL_MD_TEMPLATE` 구조 전환: Q&A 나열 중심 → **주제·내용 중심 서술**이 기본, Q&A는 주요사항(핵심 쟁점·확인사항·중요 의사결정) 보완용으로만 선택적 사용. gemini_service.py + claude_service.py(import 자동반영) + 회의녹음요약_회의록템플릿.md 양식 3 동기화 |
+| v3.1.5 | **티타임(네트워킹) 요약 양식 개편 — 모바일과 동일 적용**: `_SUMMARY_FLOW_TEMPLATE`를 모바일 최신본과 **동일하게** 교체. 기존 `## 회의 요약 → 평면적 주제 나열(# 1, # 2 …) → Q&A 주석` 구조를, ① `## 한눈에`(자리 성격 2~3줄 + 핵심 굵게 1~3개), ② `## 주요 논의`를 **맥락 3그룹**(①상대방 사업·근황 ②케이런/본인 공유 ③사적 환담 — 실제 오간 그룹만, 없으면 생략), ③ `## 후속 / 메모`(체크박스, 없으면 생략)로 개편. Q&A 블록 제거. 화자 표기 `[Antonio]`/`[케이런]`/`[상대방]` 및 사실충실성·화자분리 불신·STT 오인식 `*(추정)*` 규칙은 유지. `claude_service.py`가 `_SUMMARY_FLOW_TEMPLATE` import → **claude 엔진 자동 반영**. `.format()` 스모크(text/dt 치환, `{text}`·`{dt}` 외 중괄호 0) + Python 파싱 OK. app_dist(배포 소스) + app(레거시) 동시 적용. ⚠️ **exe 재빌드는 별도**(소스 실행 시 즉시 반영). 실사례(듀셀 골프 티타임 재정리)로 사용자 승인한 양식. |
 | v3.1.4 | **STT 안정화(모바일 대응) + 회의록 STT 엔진 표기**: `main.py run_stt`에 ① **네트워크성 오류(abort/socket/timeout/ssl 등) 최대 3회 재시도**(backoff 3s/8s), ② **Clova 재시도 모두 실패 시 Gemini STT 자동 폴백**(PC Gemini는 이미 청크 전사라 긴 파일에 강함) 추가. 실제 성공 엔진을 `_pipeline_stt_engine_used`에 기록해 `_on_pipeline_summary_done`에서 **회의록 끝에 `*STT 엔진: …*` 표기**(폴백 반영). 데스크톱은 화면잠금 절전이 없고 기존 `_set_sleep_prevention`도 있어 WakeLock류는 불필요. 모바일 v3.7.20~22 대응. exe 재빌드 완료. Python 파싱 OK. |
 | v3.1.3 | **프롬프트 통일 2단계 — PC 누락 양식 3종 신설(구조 통일 완료)**: PC가 `speaker`(주간회의)·`ir_md`(IR미팅)·`org`(본당/단체)를 고르면 실제로는 다자간협의가 나오던 결함 해소. 모바일 텍스트를 PC로 이식(port-safe 검증: stray 중괄호·`$`·백슬래시 0) → `_SUMMARY_SPEAKER_TEMPLATE`·`_SUMMARY_IR_MD_TEMPLATE`·`_SUMMARY_ORG_TEMPLATE` 추가. `gemini_service.summarize()` 디스패처 + `claude_service._get_template()` 9개 분기 완비. `main.py` 양식 라디오(설정·재요약 다이얼로그 2곳 + 파이프라인) + 파일명 라벨맵에 `org`(단체회의) 추가. 스모크 테스트(3종 `.format()` OK, 라우팅 OK) + **exe 재빌드** 완료. 문서 `회의록템플릿.md` 양식 9 추가. → **PC·모바일 9개 양식 구조 통일 완료.** |
 | v3.1.2 | **프롬프트 통일 1단계 — 주체 표기 통일**: PC↔모바일 회의록 프롬프트 통일 작업 일부. PC `gemini_service.py`의 화자 주체 표기를 `[나]`(17곳)에서 **양식군별로 통일** — 다자간협의·회의록업무=`[케이런]`, 전화통화·네트워킹=`[Antonio]`. `(화자 N)` 병기 금지 규칙 추가, 푸터 `회의록 앱`→`회의녹음요약 앱` 통일. `[나]` 0개 확인·Python 파싱 OK. 모바일은 이미 양식군별 표기 + Q&A 임의생성 금지 규율 이식(모바일 v3.7.19). **남은 통일: PC에 주간회의·IR미팅·본당(org) 양식 신설 + main.py UI 배선 + exe 재빌드**(별도 작업). |
