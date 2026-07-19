@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 > nul
-title 회의녹음요약 - 배포용 빌드 중...
+title Roundtable - 배포용 빌드 중...
 
 echo ================================================
-echo   회의녹음요약 - 배포용 EXE 빌드 스크립트
+echo   Roundtable - 배포용 EXE 빌드 스크립트
 echo   (Google Drive 없음 / FFmpeg 번들 포함)
 echo ================================================
 echo.
@@ -57,7 +57,7 @@ cd /d "%~dp0"
 %PYTHON% -m PyInstaller ^
     --onefile ^
     --windowed ^
-    --name "회의녹음요약" ^
+    --name "Roundtable" ^
     --icon "app_icon.ico" ^
     %FFMPEG_ARG% ^
     --add-data "app_dist\config.py:." ^
@@ -68,6 +68,12 @@ cd /d "%~dp0"
     --add-data "app_dist\clova_service.py:." ^
     --add-data "app_dist\file_manager.py:." ^
     --add-data "app_dist\google_drive.py:." ^
+    --add-data "app_dist\prescreen_tab.py:." ^
+    --hidden-import "fitz" ^
+    --hidden-import "pptx" ^
+    --hidden-import "yaml" ^
+    --hidden-import "win32com.client" ^
+    --hidden-import "pythoncom" ^
     --hidden-import "sounddevice" ^
     --hidden-import "soundfile" ^
     --hidden-import "google.genai" ^
@@ -103,24 +109,24 @@ echo [3/4] 빌드 완료!
 echo.
 
 echo [4/4] 바탕화면에 복사 중...
-if exist "%USERPROFILE%\Desktop\회의녹음요약.exe" (
-    del /f "%USERPROFILE%\Desktop\회의녹음요약.exe" >nul 2>&1
+if exist "%USERPROFILE%\Desktop\Roundtable.exe" (
+    del /f "%USERPROFILE%\Desktop\Roundtable.exe" >nul 2>&1
 )
-copy /Y "%~dp0dist_배포\회의녹음요약.exe" "%USERPROFILE%\Desktop\회의녹음요약.exe" >nul
+copy /Y "%~dp0dist_배포\Roundtable.exe" "%USERPROFILE%\Desktop\Roundtable.exe" >nul
 if %errorlevel% == 0 (
     echo   바탕화면 복사 완료!
 ) else (
     echo   [경고] 바탕화면 복사 실패. 수동으로 복사하세요.
-    echo   위치: %~dp0dist_배포\회의녹음요약.exe
+    echo   위치: %~dp0dist_배포\Roundtable.exe
 )
 
 echo.
 echo ================================================
 echo  배포용 EXE 위치:
-echo  %~dp0dist_배포\회의녹음요약.exe
+echo  %~dp0dist_배포\Roundtable.exe
 echo.
 echo  배포 방법:
-echo  회의녹음요약.exe 파일 하나만 전달하면 됩니다.
+echo  Roundtable.exe 파일 하나만 전달하면 됩니다.
 echo  (FFmpeg, Python 별도 설치 불필요)
 echo.
 echo  수신자 안내:

@@ -4,12 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 프로젝트 개요
 
-**회의녹음요약 (PC 데스크톱 버전)** — 윈도우용 회의 녹음·STT·AI 요약 통합 데스크톱 앱.
+**Roundtable** (구 회의녹음요약, PC 데스크톱) — 윈도우용 **회의 녹음·STT·AI 요약 + 예비검토보고서** 통합 앱.
 
 - **GitHub (origin, 사설)**: `antonio103first/meeting-recording-minute-app`
 - **GitHub (public, 배포용)**: `antonio103first/meeting-recording-for-pc-app`
-- **현재 버전**: v3.1.5
+- **현재 버전**: v4.0.0 (2026-07-19 개명 + 예비검토보고서 탭 신설)
 - **연관 모바일 앱**: `회의녹음요약(모바일)/meeting-recording-mobile/` (별도 Android 프로젝트)
+
+> ⚠️ **개명은 표시명·exe명에만 적용한다.** 저장 경로(`~/회의녹음요약_데이터`, `recording_dir`),
+> Drive 폴더명(`drive_folder_name`), 설정 키는 **그대로 두어야** 기존 녹음·회의록·연동이 끊기지 않는다.
 
 ## 핵심 기능
 
@@ -20,6 +23,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 혁신의숲 API 연동 (IR 미팅 모드 전용)
 - 이전 회의록 비교 분석 (IR 모드 / 일반 모드 공통)
 - DB 기반 회의 목록 관리 (4탭: 녹음 / STT / 요약 / 전체)
+- ⭐ **예비검토보고서 자동 생성** (v4.0.0) — IR 자료(PDF/PPTX/이미지) 선택 → 보고서 → Obsidian 이중 저장
+
+## 예비검토보고서 탭 (v4.0.0)
+
+**엔진은 앱에 복사하지 않고 `Prescreening_Report` 저장소에서 런타임 로드**한다(SSOT 유지).
+경로는 설정 탭 「예비검토 엔진 경로」에서 지정하며, 없으면 **탭 자체를 노출하지 않는다**.
+
+| 모드 | 구현 | 품질(지엘켐 실측) | 소요 | 전제 |
+|------|------|------------------|------|------|
+| **스킬 모드**(기본) | `claude --print`로 `krun-prescreening-report` 스킬 원본 실행 | 66,577자 (100%) · 인용 도메인 17종 | 7~40분 | Claude Code 설치 |
+| **엔진 모드** | Python 엔진(`engine/`), 판단은 Gemini 또는 `claude` CLI | 43,927~55,935자 (66~84%) · 도메인 2종 | 5~15분 | 없음 |
+
+- **둘 다 Claude 구독을 쓴다** — API 크레딧 불필요 (`PRESCREEN_CLAUDE_VIA=api`로만 API 사용)
+- Claude Code 미설치 시 스킬 모드는 **차단**하고 안내(조용한 폴백 금지)
+- **녹음 중 실행 시 경고** — 녹음은 복구 불가이므로 사용자가 그 자리에서 판단
+- 저장: `00_Inbox/companies`(필수) + `08_회의록`(보관)
+- 관련 문서: `docs/기획서_Roundtable_예비검토보고서탭.md`
 
 ## 디렉토리 구조
 
@@ -27,12 +47,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 회의녹음요약/
 ├── app_dist/               # 메인 소스 (배포·개발 공용)
 │   ├── main.py             # Tkinter UI + 파이프라인 (4000+ lines)
+│   ├── prescreen_tab.py    # ⭐v4.0.0 예비검토보고서 탭 (엔진 런타임 로드·2모드)
 │   ├── gemini_service.py   # Gemini STT + 요약 (4개 템플릿 코드화)
 │   ├── claude_service.py   # Claude API 요약
 │   ├── google_drive.py     # Drive 업로드
 │   ├── file_manager.py
 │   ├── database.py         # SQLite 회의록 DB
 │   └── config.py           # 경로·모델 상수
+├── docs/
+│   └── 기획서_Roundtable_예비검토보고서탭.md   # ⭐v4.0.0 설계·실측·결함 이력
 ├── dist_배포(태윤)/         # 배포본(가공) — 외부 사용자용
 ├── ffmpeg_bundle/          # 번들 ffmpeg.exe
 ├── build_dist.bat          # 메인 빌드 스크립트 (Drive 미포함)
@@ -145,6 +168,7 @@ git push public master
 
 | 버전 | 주요 변경 |
 |------|----------|
+| **v4.0.0** | **앱 개명 `회의녹음요약` → `Roundtable` + 예비검토보고서 탭 신설.** ① **탭 신설**(`prescreen_tab.py`) — IR 자료 선택 → 보고서 → Obsidian 이중 저장. 엔진은 `Prescreening_Report` 저장소에서 **런타임 로드**(앱에 복사하면 스킬 개선 시 두 벌이 갈라짐 — SSOT 유지), 엔진 없으면 **탭 미노출**. ② **2모드** — 스킬 모드(`claude --print`로 스킬 원본 실행, 100%·도메인 17종) / 엔진 모드(Python, 66~84%·도메인 2종). **둘 다 Claude 구독 사용**(API 크레딧 불필요). ③ **개명은 표시명·exe만** — 저장경로·Drive 폴더명·설정키 유지해 기존 데이터 보존. ④ **녹음 중 실행 경고** — 녹음은 복구 불가라 사용자가 판단. ⑤ 엔진 자산 신설: `engine/`(ir_reader·extractor·research·llm·valuation·skill_runner), PPT 차트 **원본 데이터 추출**(Vision 눈대중이 7,300→7,000 오독), DART **감사보고서 판독**(사업장·주주·RCPS·감사재무), **밸류에이션 역산**(Pre 320억/Post 490억 — 스킬 수치 재현). ⑥ **잡은 결함 8건**: 재무 type 불일치(13행 증발)·PPT 오독·`sys.executable`(exe가 자기 재실행)·**워커 스레드 tkinter 접근**(버튼 누르면 죽음)·`fund_use` 키 불일치·`_num` 파싱(밸류 0억원)·`gemini_research` 파싱 취약(§11 소실)·Claude `temperature` deprecated. **미해결**: 볼트에 테스트 산출물이 `KRUN/검토중/지엘켐` 폴더를 만들어 기존 `Antonio/검토중/지엘켐`과 갈라짐(정리 필요), 혁신의숲 엔드포인트 미확정, exe 내 탭 실동작 미검증. 문서 `docs/기획서_Roundtable_예비검토보고서탭.md` |
 | v3.0 | 7개 요약 양식 정착 |
 | v3.0.2 | 회의목록 4탭 개편 + 마크다운 뷰어 + 편집 저장 |
 | v3.0.3 | IR Q&A 규칙 개편(STT 금지·전수 요약·Q/A 붙여쓰기) + 양식 8 컨퍼런스/간담회 신설 + 3중 저장처 파일명 포맷 통일(`{회사}_{YYYYMMDD}({모드})`) |

@@ -1,6 +1,9 @@
 """
-회의녹음요약 v3 - 메인 GUI
-탭 구성: 녹음/변환 | 회의목록 | 설정
+Roundtable v4.0.0 - 메인 GUI  (구 회의녹음요약)
+탭 구성: 녹음/변환 | 회의목록 | 예비검토보고서 | 설정
+
+※ 개명은 표시명·exe명에만 적용한다. 저장 경로(APP_DATA_DIR·recording_dir)와
+  Drive 폴더명·설정 키는 그대로 두어야 기존 녹음·회의록·연동이 끊기지 않는다.
 자동화 파이프라인: STT → (화자이름) → 요약 → 로컬 저장 → Drive 업로드(선택)
 Google Drive A방식: 각 사용자가 직접 OAuth 자격증명 설정
 
@@ -34,8 +37,12 @@ import claude_service as claude
 import clova_service as clova
 import file_manager as fm
 import google_drive as gdrive
+import prescreen_tab
 
 # ── 색상 / 스타일 상수 ──────────────────────────────────
+APP_VERSION = "4.0.0"
+APP_NAME    = "Roundtable"
+
 BG          = "#F5F6FA"
 SIDEBAR_BG  = "#2C3E50"
 ACCENT      = "#3498DB"
@@ -60,7 +67,7 @@ FONT_BTN    = ("맑은 고딕", 10, "bold")
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("회의녹음요약")
+        self.title(f"Roundtable v{APP_VERSION}")
         self.geometry("960x760")
         self.minsize(800, 600)
         self.configure(bg=BG)
@@ -133,8 +140,10 @@ class App(tk.Tk):
         hdr = tk.Frame(self, bg=SIDEBAR_BG, height=56)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
-        tk.Label(hdr, text="🎙 회의녹음요약",
+        tk.Label(hdr, text=f"🎙 {APP_NAME}",
                  font=FONT_TITLE, bg=SIDEBAR_BG, fg=WHITE).pack(side="left", padx=20, pady=10)
+        tk.Label(hdr, text="회의 녹음·요약  ·  예비검토보고서",
+                 font=FONT_SMALL, bg=SIDEBAR_BG, fg="#AEB6BF").pack(side="left", pady=14)
 
         # 탭
         self._nb = ttk.Notebook(self)
@@ -146,10 +155,21 @@ class App(tk.Tk):
 
         self._nb.add(self._tab_rec,  text="  🎙 녹음/변환  ")
         self._nb.add(self._tab_list, text="  📋 회의목록  ")
+
+        # 예비검토보고서 탭은 엔진이 실제로 있을 때만 노출한다.
+        # (엔진 없는 배포본에서 잠긴 탭이 보이면 정체불명의 기능으로 읽힌다.
+        #  설정 탭의 엔진 경로 카드는 항상 있으므로 지정 후 재시작하면 나타난다)
+        self._prescreen = None
+        if prescreen_tab.engine_available(self._cfg):
+            self._tab_pre = tk.Frame(self._nb, bg=BG)
+            self._nb.add(self._tab_pre, text="  📑 예비검토보고서  ")
+
         self._nb.add(self._tab_cfg,  text="  ⚙ 설정  ")
 
         self._build_tab_record()
         self._build_tab_list()
+        if prescreen_tab.engine_available(self._cfg):
+            self._prescreen = prescreen_tab.PrescreenTab(self._tab_pre, self)
         self._build_tab_settings()
 
     def _apply_style(self):
@@ -1003,6 +1023,48 @@ class App(tk.Tk):
                  text="※ 저장 파일명 형식: YYMMDD 기업명 IR.md  (예: 260408 서메어 IR.md)",
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(4, 0))
 
+        # ─ 예비검토보고서 엔진 ───────────────────────────
+        self._card(inner, "📑 예비검토보고서 엔진 경로").pack(fill="x", **pad)
+        pre_card = self._last_card
+
+        tk.Label(pre_card,
+                 text="예비검토보고서 탭이 사용할 엔진(Prescreening_Report 저장소) 위치입니다.\n"
+                      "엔진을 앱에 복사하지 않고 저장소에서 직접 불러오므로, 스킬을 개선하면 "
+                      "앱을 다시 빌드하지 않아도 반영됩니다.",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT, justify="left").pack(anchor="w", pady=(0, 6))
+
+        pre_row = tk.Frame(pre_card, bg=CARD_BG)
+        pre_row.pack(fill="x", pady=2)
+        tk.Label(pre_row, text="엔진 폴더:", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT, width=10, anchor="w").pack(side="left")
+        self._pre_dir_var = tk.StringVar(
+            value=self._cfg.get("prescreen_home", prescreen_tab.DEFAULT_ENGINE_HOME))
+        tk.Entry(pre_row, textvariable=self._pre_dir_var,
+                 font=FONT_SMALL, width=38, state="readonly").pack(side="left", padx=4)
+
+        self._pre_state_var = tk.StringVar()
+
+        def _refresh_pre_state():
+            ok = prescreen_tab.engine_available(self._cfg)
+            self._pre_state_var.set("✅ 엔진 확인됨" if ok
+                                    else "⚠️ 엔진 없음 — engine/runner.py 를 찾지 못했습니다")
+
+        def _browse_pre():
+            d = filedialog.askdirectory(title="Prescreening_Report 저장소 폴더 선택",
+                                        initialdir=self._pre_dir_var.get())
+            if d:
+                self._pre_dir_var.set(d)
+                self._cfg["prescreen_home"] = d
+                config.save_config(self._cfg)
+                _refresh_pre_state()
+                messagebox.showinfo("저장됨",
+                                    "엔진 경로를 저장했습니다.\n앱을 다시 시작하면 탭에 반영됩니다.")
+        self._btn(pre_row, "📂 찾아보기", ACCENT, _browse_pre, w=10).pack(side="left", padx=2)
+
+        _refresh_pre_state()
+        tk.Label(pre_card, textvariable=self._pre_state_var,
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(4, 0))
+
         # ─ 로컬 프린터 설정 ──────────────────────────────
         self._card(inner, "🖨 로컬 프린터 설정").pack(fill="x", **pad)
         net_card = self._last_card
@@ -1064,7 +1126,7 @@ class App(tk.Tk):
         dlg.configure(bg=CARD_BG)
 
         # 타이틀
-        tk.Label(dlg, text="🎙 회의녹음요약 초기 설정",
+        tk.Label(dlg, text=f"🎙 {APP_NAME} 초기 설정",
                  font=FONT_TITLE, bg=CARD_BG, fg=TEXT).pack(pady=(20, 4))
         tk.Label(dlg, text="아래 정보를 입력하면 바로 사용 가능합니다.",
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack()
