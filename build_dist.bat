@@ -54,8 +54,11 @@ echo.
 
 cd /d "%~dp0"
 
+:: onedir — 실행할 때마다 346MB를 임시폴더에 푸는 onefile 방식은 기동에 30~90초가
+:: 걸렸다(ffmpeg 201MB가 58%). onedir은 압축 해제 단계가 없어 수 초 만에 뜬다.
+:: 배포는 폴더 통째로 전달하고, 바탕화면에는 바로가기를 둔다.
 %PYTHON% -m PyInstaller ^
-    --onefile ^
+    --onedir ^
     --windowed ^
     --name "Roundtable" ^
     --icon "app_icon.ico" ^
@@ -108,22 +111,28 @@ echo.
 echo [3/4] 빌드 완료!
 echo.
 
-echo [4/4] 바탕화면에 복사 중...
+echo [4/4] 바탕화면 바로가기 생성 중...
 if exist "%USERPROFILE%\Desktop\Roundtable.exe" (
     del /f "%USERPROFILE%\Desktop\Roundtable.exe" >nul 2>&1
 )
-copy /Y "%~dp0dist_배포\Roundtable.exe" "%USERPROFILE%\Desktop\Roundtable.exe" >nul
+powershell -NoProfile -Command ^
+  "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('%USERPROFILE%\Desktop\Roundtable.lnk');" ^
+  "$s.TargetPath='%~dp0dist_배포\Roundtable\Roundtable.exe';" ^
+  "$s.WorkingDirectory='%~dp0dist_배포\Roundtable';" ^
+  "$s.IconLocation='%~dp0app_icon.ico';" ^
+  "$s.Description='Roundtable - 회의 녹음/요약 + 예비검토보고서';" ^
+  "$s.Save()"
 if %errorlevel% == 0 (
-    echo   바탕화면 복사 완료!
+    echo   바탕화면 바로가기 생성 완료!
 ) else (
-    echo   [경고] 바탕화면 복사 실패. 수동으로 복사하세요.
-    echo   위치: %~dp0dist_배포\Roundtable.exe
+    echo   [경고] 바로가기 생성 실패. 폴더에서 직접 실행하세요.
 )
 
 echo.
 echo ================================================
-echo  배포용 EXE 위치:
-echo  %~dp0dist_배포\Roundtable.exe
+echo  실행 파일 위치:
+echo  %~dp0dist_배포\Roundtable\Roundtable.exe
+echo  (폴더 전체가 필요합니다. exe 하나만 옮기면 실행되지 않습니다)
 echo.
 echo  배포 방법:
 echo  Roundtable.exe 파일 하나만 전달하면 됩니다.

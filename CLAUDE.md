@@ -131,13 +131,17 @@ python main.py
 
 ### 배포 빌드 (PyInstaller)
 ```bash
-# 메인 빌드 (Drive 포함)
+# 메인 빌드 (onedir — 기동 6초)
 build_dist.bat
 
 # 태윤 배포본 (Drive 없음, FFmpeg 번들 포함)
 build_taeyun.bat
 ```
-- 출력: `dist/회의녹음요약.exe` 또는 `dist_배포(태윤)/`
+- 출력: `dist_배포/Roundtable/Roundtable.exe` (**폴더 전체가 필요**) + 바탕화면 바로가기 자동 생성
+- **v4.0.0에서 onefile → onedir 전환**: onefile은 실행할 때마다 346MB(그중 ffmpeg 201MB = 58%)를
+  임시폴더에 풀어 기동에 **30~90초**가 걸렸다. onedir은 압축 해제가 없어 **6.4초**(실측).
+  대신 폴더 935MB·5,651개 파일이 되므로 배포는 폴더 통째로 전달한다.
+  (태윤 배포본은 전달 편의를 위해 onefile 유지)
 - spec 파일: `회의녹음요약.spec`
 - FFmpeg는 빌드 시 PATH에서 자동 탐색 → `ffmpeg_bundle/ffmpeg.exe`로 번들
 
