@@ -30,10 +30,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **엔진은 앱에 복사하지 않고 `Prescreening_Report` 저장소에서 런타임 로드**한다(SSOT 유지).
 경로는 설정 탭 「예비검토 엔진 경로」에서 지정하며, 없으면 **탭 자체를 노출하지 않는다**.
 
-| 모드 | 구현 | 품질(지엘켐 실측) | 소요 | 전제 |
-|------|------|------------------|------|------|
-| **스킬 모드**(기본) | `claude --print`로 `krun-prescreening-report` 스킬 원본 실행 | 66,577자 (100%) · 인용 도메인 17종 | 7~40분 | Claude Code 설치 |
-| **엔진 모드** | Python 엔진(`engine/`), 판단은 Gemini 또는 `claude` CLI | 43,927~55,935자 (66~84%) · 도메인 2종 | 5~15분 | 없음 |
+| 모드 | 구현 | 품질(실측) | 소요 | 전제 |
+|------|------|-----------|------|------|
+| **엔진 모드**(기본) | Python 엔진(`engine/`), 판단은 Gemini 또는 `claude` CLI | 43,927~55,935자 · 인용 도메인 2종 | 5~15분 | 없음 |
+| **스킬 모드** | `claude --print`로 `krun-prescreening-report` 스킬 원본 실행 | 65,244자(위더스 백지 생성) · 도메인 12종 · 확인필요 160건 | 7~40분 | Claude Code 설치 |
+
+> 운용 방침: **평소엔 엔진 모드로 빠르게 초안**을 뽑고, 투심에 올릴 건처럼
+> 품질이 필요할 때 스킬 모드로 올린다. 보고서 말미에 어느 모드로 생성했는지 표기된다
+> (`*생성: Roundtable v4.0.0 · 엔진 모드(gemini) · YYYY-MM-DD*`).
 
 - **둘 다 Claude 구독을 쓴다** — API 크레딧 불필요 (`PRESCREEN_CLAUDE_VIA=api`로만 API 사용)
 - Claude Code 미설치 시 스킬 모드는 **차단**하고 안내(조용한 폴백 금지)

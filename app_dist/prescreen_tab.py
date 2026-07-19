@@ -112,13 +112,14 @@ class PrescreenTab:
         mode = tk.Frame(inner, bg=CARD_BG)
         mode.grid(row=5, column=0, columnspan=3, sticky="w", pady=(14, 0))
         tk.Label(mode, text="실행 모드", font=FONT_BODY, bg=CARD_BG, fg=TEXT).pack(anchor="w")
-        self.mode_var = tk.StringVar(value=self.app._cfg.get("prescreen_mode", "skill"))
-        tk.Radiobutton(mode, text="스킬 모드 — 품질 최상 · Claude 구독 사용 · 10~40분",
-                       variable=self.mode_var, value="skill", command=self._sync_mode,
-                       font=FONT_SMALL, bg=CARD_BG, fg=TEXT, selectcolor=CARD_BG
-                       ).pack(anchor="w")
+        # 기본은 엔진 모드 — 평소엔 빠르게 초안을 뽑고, 필요할 때 스킬 모드로 올린다
+        self.mode_var = tk.StringVar(value=self.app._cfg.get("prescreen_mode", "engine"))
         tk.Radiobutton(mode, text="엔진 모드 — 빠름 · 5~15분 · Claude Code 없어도 동작",
                        variable=self.mode_var, value="engine", command=self._sync_mode,
+                       font=FONT_SMALL, bg=CARD_BG, fg=TEXT, selectcolor=CARD_BG
+                       ).pack(anchor="w")
+        tk.Radiobutton(mode, text="스킬 모드 — 품질 최상 · Claude 구독 사용 · 10~40분",
+                       variable=self.mode_var, value="skill", command=self._sync_mode,
                        font=FONT_SMALL, bg=CARD_BG, fg=TEXT, selectcolor=CARD_BG
                        ).pack(anchor="w")
 
