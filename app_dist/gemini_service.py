@@ -28,13 +28,14 @@ _CHUNK_TARGET_MIN = 10   # 청크 목표 길이(분) — 긴 오디오를 한 �
 
 
 def _is_degenerate(text: str) -> bool:
-    """STT 반복루프(예: '예.' 같은 한 줄이 대부분을 차지) 감지."""
+    """STT 반복루프 감지. 단일 문장 반복뿐 아니라 '[화자1] 예.'/'[화자2] 예.'처럼
+    소수의 짧은 문장이 번갈아 반복되는 패턴(각각은 과반 미만이라 단일 최빈값 검사로는 못 잡음)도 감지."""
     lines = [l.strip() for l in (text or "").strip().splitlines() if l.strip()]
-    if len(lines) < 20:
+    if len(lines) < 30:
         return False
-    from collections import Counter
-    most_common, freq = Counter(lines).most_common(1)[0]
-    return len(most_common) < 20 and freq / len(lines) > 0.6
+    unique_ratio = len(set(lines)) / len(lines)
+    avg_len = sum(len(l) for l in lines) / len(lines)
+    return unique_ratio < 0.15 and avg_len < 20
 
 # ── STT 프롬프트 ────────────────────────────────────────
 _STT_PROMPT_TEMPLATE = """이 오디오 파일을 한국어 텍스트로 정확히 전사해주세요.
