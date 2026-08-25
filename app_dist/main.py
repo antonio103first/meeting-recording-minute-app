@@ -107,7 +107,7 @@ class App(tk.Tk):
         self._processing    = False
 
         # 파이프라인 임시 저장
-        self._pipeline_sum_mode    = "topic"
+        self._pipeline_sum_mode    = self._cfg.get("summary_mode", "topic")
         self._pipeline_ai_engine   = self._cfg.get("summary_engine", "gemini")  # "gemini" | "claude" | "chatgpt"
         self._pipeline_company_name = ""  # IR 미팅 모드 전용: 혁신의숲 API 조회 기업명
         self._pipeline_stt_engine  = self._cfg.get("stt_engine", "gemini")      # "gemini" | "clova"
@@ -296,6 +296,11 @@ class App(tk.Tk):
                  wraplength=500, justify="left").pack(side="left", padx=8)
         self._btn(file_row, "📂 파일 선택", TEXT_LIGHT,
                   self._pick_audio_file, w=12).pack(side="right")
+        # v4.0.1 — 요약 방식 선택을 설정 탭에서 여기(파일 선택 옆)로 이동
+        self._btn_sum_mode = self._btn(
+            file_row, self._sum_mode_button_label(), ACCENT,
+            self._pick_pipeline_sum_mode_a, w=16)
+        self._btn_sum_mode.pack(side="right", padx=(0, 6))
 
         # ─ 섹션 2: STT 변환 결과 ────────────────────────
         self._card(inner, "📝 STT 변환 결과").pack(fill="x", **pad)
@@ -555,34 +560,6 @@ class App(tk.Tk):
         canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
 
         pad = {"padx": 20, "pady": 8}
-
-        # ─ ① 기본 요약 방식 ─────────────────────────────────
-        self._card(inner, "🗂 기본 요약 방식").pack(fill="x", **pad)
-        sm_card = self._last_card
-
-        tk.Label(sm_card,
-                 text="변환 시 요약 방식을 지정합니다. 영역 A 자동 변환 시 이 설정이 적용됩니다.",
-                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w", pady=(0, 6))
-
-        self._default_sum_mode_var = tk.StringVar(
-            value=self._cfg.get("summary_mode", "topic"))
-        for label, val in [
-            ("주간회의 — 회의록 앱 파트너 주간회의록", "speaker"),
-            ("다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
-            ("회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리", "formal_md"),
-            ("IR 미팅회의록 — 피투자사 IR 미팅 전문 정리", "ir_md"),
-            ("강의 요약 — 학습/세미나 특화", "lecture_md"),
-            ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
-            ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
-            ("컨퍼런스/간담회 — 다수 발표자 행사·세미나·라운드테이블", "conference"),
-            ("본당/단체 회의 — 본당 상임위·단체·학교 등 부서/분과(비영리)", "org"),
-        ]:
-            tk.Radiobutton(
-                sm_card, text=label,
-                variable=self._default_sum_mode_var, value=val,
-                bg=CARD_BG, font=FONT_BODY, fg=TEXT, activebackground=CARD_BG,
-                command=self._save_default_sum_mode
-            ).pack(anchor="w")
 
         # ─ Gemini API ───────────────────────────────────
         self._card(inner, "🤖 Gemini API 설정").pack(fill="x", **pad)
@@ -3581,11 +3558,56 @@ class App(tk.Tk):
         self._pipeline_stt_engine = eng
         config.save_config(self._cfg)
 
-    def _save_default_sum_mode(self):
-        mode = self._default_sum_mode_var.get()
-        self._cfg["summary_mode"] = mode
-        self._pipeline_sum_mode = mode
-        config.save_config(self._cfg)
+    def _sum_mode_button_label(self) -> str:
+        """v4.0.1 — 파일 선택 옆 요약방식 버튼에 표시할 짧은 라벨"""
+        mode_label_map = {
+            "topic": "다자간협의", "formal_md": "업무미팅", "ir_md": "IR미팅",
+            "flow": "티타임", "phone": "전화통화메모", "lecture_md": "강의요약",
+            "speaker": "주간회의", "conference": "컨퍼런스", "org": "단체회의",
+        }
+        return f"🗂 {mode_label_map.get(self._pipeline_sum_mode, self._pipeline_sum_mode)}"
+
+    def _pick_pipeline_sum_mode_a(self):
+        """v4.0.1 — 영역 A(녹음/변환) 요약 방식 선택 팝업.
+        설정 탭의 '기본 요약 방식' 카드를 대체 — 파일 선택 옆 버튼에서 매 변환 시 지정."""
+        dlg = tk.Toplevel(self)
+        dlg.title("요약 방식 선택")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="요약 방식을 선택하세요:", font=FONT_BODY,
+                 bg=BG, fg=TEXT).pack(padx=20, pady=(16, 8))
+
+        sum_mode_var = tk.StringVar(value=self._pipeline_sum_mode)
+        frm = tk.Frame(dlg, bg=BG)
+        frm.pack(padx=20, pady=4)
+        for label, val in [
+            ("주간회의 — 회의록 앱 파트너 주간회의록", "speaker"),
+            ("다자간 협의 — 기관협의·다자간 공식회의·다자간 네트워킹", "topic"),
+            ("회의록(업무) — 직전 투자심사 외부 미팅·투자업체 사후관리", "formal_md"),
+            ("IR 미팅회의록 — 피투자사 IR 미팅 전문 정리", "ir_md"),
+            ("강의 요약 — 학습/세미나 특화", "lecture_md"),
+            ("네트워킹(티타임) — 티타임·비공식 네트워킹 대화 정리", "flow"),
+            ("전화통화 메모 — 통화 내용 주제별 요약 + 질의응답", "phone"),
+            ("컨퍼런스/간담회 — 다수 발표자 행사·세미나·라운드테이블", "conference"),
+            ("본당/단체 회의 — 본당 상임위·단체·학교 등 부서/분과(비영리)", "org"),
+        ]:
+            tk.Radiobutton(frm, text=label, variable=sum_mode_var, value=val,
+                           bg=BG, font=FONT_BODY, fg=TEXT,
+                           activebackground=BG).pack(anchor="w")
+
+        def _ok():
+            mode = sum_mode_var.get()
+            self._cfg["summary_mode"] = mode
+            self._pipeline_sum_mode = mode
+            config.save_config(self._cfg)
+            self._btn_sum_mode.config(text=self._sum_mode_button_label())
+            dlg.destroy()
+
+        btn_row = tk.Frame(dlg, bg=BG)
+        btn_row.pack(pady=12)
+        self._btn(btn_row, "선택", ACCENT, _ok, w=12).pack(side="left", padx=6)
+        self._btn(btn_row, "취소", TEXT_LIGHT, dlg.destroy, w=8).pack(side="left", padx=6)
 
     def _save_summary_engine(self):
         eng = self._summary_engine_var.get()
