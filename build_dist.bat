@@ -72,6 +72,7 @@ cd /d "%~dp0"
     --add-data "app_dist\file_manager.py:." ^
     --add-data "app_dist\google_drive.py:." ^
     --add-data "app_dist\prescreen_tab.py:." ^
+    --add-data "app_dist\audio_player.py:." ^
     --hidden-import "fitz" ^
     --hidden-import "pptx" ^
     --hidden-import "yaml" ^

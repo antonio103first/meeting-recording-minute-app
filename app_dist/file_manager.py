@@ -90,6 +90,88 @@ def list_summary_files() -> list:
     return sorted(files, reverse=True)
 
 
+def copy_files_to_clipboard(paths) -> tuple:
+    """파일 자체를 Windows 클립보드에 복사(CF_HDROP).
+
+    카카오톡 PC·슬랙·팀즈·Outlook 등 채팅/메일 창에서 Ctrl+V 하면 파일이 첨부·전송된다.
+    (탐색기에서 파일을 Ctrl+C 한 것과 동일한 클립보드 상태를 만든다)
+
+    반환: (ok: bool, message: str)
+    """
+    if sys.platform != "win32":
+        return False, "Windows에서만 지원되는 기능입니다."
+
+    import ctypes
+    import ctypes.wintypes as w
+    import struct
+    import time
+
+    files = [str(Path(p).resolve()) for p in paths
+             if p and Path(p).is_file()]
+    if not files:
+        return False, "복사할 파일이 없습니다."
+
+    # DROPFILES 헤더(20바이트): pFiles=20, pt=(0,0), fNC=0, fWide=1(UTF-16)
+    header = struct.pack("IiiII", 20, 0, 0, 0, 1)
+    body = ("\0".join(files) + "\0\0").encode("utf-16-le")
+    payload = header + body
+
+    GMEM_MOVEABLE = 0x0002
+    CF_HDROP = 15
+    DROPEFFECT_COPY = 1
+
+    k32 = ctypes.windll.kernel32
+    u32 = ctypes.windll.user32
+    k32.GlobalAlloc.restype = w.HGLOBAL
+    k32.GlobalAlloc.argtypes = [w.UINT, ctypes.c_size_t]
+    k32.GlobalLock.restype = ctypes.c_void_p
+    k32.GlobalLock.argtypes = [w.HGLOBAL]
+    k32.GlobalUnlock.argtypes = [w.HGLOBAL]
+    k32.GlobalFree.argtypes = [w.HGLOBAL]
+    u32.SetClipboardData.argtypes = [w.UINT, w.HANDLE]
+    u32.SetClipboardData.restype = w.HANDLE
+    u32.RegisterClipboardFormatW.argtypes = [w.LPCWSTR]
+    u32.RegisterClipboardFormatW.restype = w.UINT
+
+    def _alloc(data: bytes):
+        h = k32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+        if not h:
+            raise OSError("GlobalAlloc 실패")
+        ptr = k32.GlobalLock(h)
+        ctypes.memmove(ptr, data, len(data))
+        k32.GlobalUnlock(h)
+        return h
+
+    opened = False
+    for _ in range(10):          # 다른 앱이 잠깐 잡고 있을 수 있어 재시도
+        if u32.OpenClipboard(None):
+            opened = True
+            break
+        time.sleep(0.05)
+    if not opened:
+        return False, "클립보드를 열 수 없습니다(다른 프로그램이 사용 중). 잠시 후 다시 시도하세요."
+
+    try:
+        u32.EmptyClipboard()
+        h_drop = _alloc(payload)
+        if not u32.SetClipboardData(CF_HDROP, h_drop):
+            k32.GlobalFree(h_drop)
+            return False, "클립보드에 파일을 넣지 못했습니다(SetClipboardData 실패)."
+        # 붙여넣기 시 '이동'이 아닌 '복사'로 동작하도록 명시(원본 보존)
+        fmt = u32.RegisterClipboardFormatW("Preferred DropEffect")
+        if fmt:
+            h_eff = _alloc(struct.pack("I", DROPEFFECT_COPY))
+            if not u32.SetClipboardData(fmt, h_eff):
+                k32.GlobalFree(h_eff)
+    except Exception as e:
+        return False, f"클립보드 복사 오류: {e}"
+    finally:
+        u32.CloseClipboard()
+
+    names = ", ".join(Path(f).name for f in files)
+    return True, names
+
+
 def open_file_in_explorer(file_path: str):
     """파일 탐색기에서 파일 위치 열기 (선택 상태로)"""
     try:

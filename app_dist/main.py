@@ -38,9 +38,10 @@ import clova_service as clova
 import file_manager as fm
 import google_drive as gdrive
 import prescreen_tab
+import audio_player
 
 # ── 색상 / 스타일 상수 ──────────────────────────────────
-APP_VERSION = "4.0.0"
+APP_VERSION = "4.0.5"
 APP_NAME    = "Roundtable"
 
 BG          = "#F5F6FA"
@@ -130,8 +131,12 @@ class App(tk.Tk):
             self.after(200, self._show_first_run_wizard)
 
     def _on_app_close(self):
-        """앱 종료 핸들러 — 절전 방지 반드시 해제 후 종료"""
+        """앱 종료 핸들러 — 절전 방지 및 오디오 재생 반드시 해제 후 종료"""
         self._set_sleep_prevention(False)
+        for attr in ("_rec_player", "_list_player"):
+            player = getattr(self, attr, None)
+            if player is not None:
+                player.shutdown()
         self.destroy()
 
     # ── UI 구성 ──────────────────────────────────────────
@@ -301,6 +306,13 @@ class App(tk.Tk):
             file_row, self._sum_mode_button_label(), ACCENT,
             self._pick_pipeline_sum_mode_a, w=16)
         self._btn_sum_mode.pack(side="right", padx=(0, 6))
+
+        # 선택된 녹음파일 바로 청취 (v4.0.5)
+        self._rec_player = audio_player.AudioPlayerWidget(
+            tk, ttk, rec_card, bg=CARD_BG, accent=ACCENT,
+            text_light=TEXT_LIGHT, font_small=FONT_SMALL,
+            on_share=self._share_audio_file)
+        self._rec_player.pack(fill="x", pady=(6, 0))
 
         # ─ 섹션 2: STT 변환 결과 ────────────────────────
         self._card(inner, "📝 STT 변환 결과").pack(fill="x", **pad)
@@ -510,6 +522,13 @@ class App(tk.Tk):
                   self._find_replace_dialog, w=13).pack(side="left", padx=4)
         self._btn(btn_row, "🗑 삭제", DANGER,
                   self._delete_meeting, w=10).pack(side="left", padx=4)
+
+        # 선택한 회의의 녹음파일 바로 청취 (v4.0.5)
+        self._list_player = audio_player.AudioPlayerWidget(
+            tk, ttk, bot_frame, bg=BG, accent=ACCENT,
+            text_light=TEXT_LIGHT, font_small=FONT_SMALL,
+            on_share=self._share_audio_file)
+        self._list_player.pack(fill="x", pady=(0, 4))
 
         # 요약 / STT 분리 탭바
         self._detail_nb = ttk.Notebook(bot_frame, style="Detail.TNotebook")
@@ -1276,6 +1295,7 @@ class App(tk.Tk):
             sel = self._mic_cb.current()
             if sel > 0 and hasattr(self, "_mic_devices"):
                 idx = self._mic_devices[sel - 1]["index"]
+            self._rec_player.clear()   # 녹음 시작 시 기존 재생 정지(장치 충돌 방지)
             ok, msg = self._recorder.start_recording(device_index=idx)
             if ok:
                 self._btn_rec.config(text="● 녹음 중...", bg=DANGER)
@@ -1325,9 +1345,11 @@ class App(tk.Tk):
         if ok:
             self._current_mp3 = out
             self._cur_file_var.set(out)
+            self._rec_player.load(out)
             messagebox.showinfo("녹음 완료", f"✅ 파일 저장됨:\n{out}")
         else:
             self._cur_file_var.set("(변환 실패)")
+            self._rec_player.clear()
             messagebox.showerror("MP3 변환 오류", out)
 
     def _pick_audio_file(self):
@@ -1339,6 +1361,7 @@ class App(tk.Tk):
         if path:
             self._current_mp3 = path
             self._cur_file_var.set(path)
+            self._rec_player.load(path)
 
     # ════════════════════════════════════════════════════
     # 자동화 파이프라인
@@ -1432,6 +1455,7 @@ class App(tk.Tk):
         self._stt_status_var.set(f"✅ TXT 불러오기 완료: {Path(path).name}  ({len(stt_text):,}자)")
         self._set_prog(self._stt_prog, 100)
         self._current_mp3 = None   # 녹음 파일 없음 (txt 첨부 모드)
+        self._rec_player.clear()
 
         # ④ 요약 옵션 다이얼로그 (▶ 변환 시작과 동일)
         dlg = tk.Toplevel(self)
@@ -2413,6 +2437,9 @@ class App(tk.Tk):
         data = database.get_meeting(mid)
         self._selected_meeting_data = data
 
+        # 녹음파일 바로 청취
+        self._list_player.load(data.get("mp3_local_path"))
+
         # 요약 탭
         self._sum_detail_box.delete("1.0", "end")
         self._sum_detail_box.insert("1.0", data.get("summary_text", "(요약 없음)"))
@@ -2898,12 +2925,63 @@ class App(tk.Tk):
         menu.add_command(label="💬  카카오톡 공유",
                          command=lambda: self._share_kakao(data))
         menu.add_separator()
+        # v4.0.5: 녹음파일(MP3) 자체를 보내기 — 카톡·슬랙 창에 Ctrl+V
+        mp3 = data.get("mp3_local_path") or ""
+        audio_menu = tk.Menu(menu, tearoff=0)
+        self._fill_audio_share_menu(audio_menu, mp3)
+        menu.add_cascade(label="🎙  녹음파일(MP3) 보내기", menu=audio_menu,
+                         state="normal" if (mp3 and Path(mp3).is_file()) else "disabled")
+        menu.add_separator()
         menu.add_command(label="📁  파일 탐색기에서 열기",
                          command=lambda: self._share_explorer(data))
         try:
             menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
         finally:
             menu.grab_release()
+
+    # ── 녹음파일 보내기 (v4.0.5) ─────────────────────────
+    def _fill_audio_share_menu(self, menu, path: str):
+        menu.add_command(
+            label="📋  파일 복사 → 카톡·슬랙 채팅창에 Ctrl+V",
+            command=lambda: self._audio_copy_clipboard(path))
+        menu.add_command(
+            label="📁  탐색기에서 보기 (드래그해서 전송)",
+            command=lambda: fm.open_file_in_explorer(path))
+        menu.add_command(
+            label="🎧  기본 플레이어로 열기",
+            command=lambda: self._audio_open_default(path))
+
+    def _share_audio_file(self, path):
+        """플레이어 위젯의 '📤 보내기' 버튼 — 드롭다운 메뉴"""
+        if not path or not Path(path).is_file():
+            messagebox.showwarning("알림", "보낼 녹음파일이 없습니다.")
+            return
+        menu = tk.Menu(self, tearoff=0)
+        self._fill_audio_share_menu(menu, path)
+        try:
+            menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
+        finally:
+            menu.grab_release()
+
+    def _audio_copy_clipboard(self, path: str):
+        ok, msg = fm.copy_files_to_clipboard([path])
+        if ok:
+            messagebox.showinfo(
+                "파일 복사 완료",
+                f"녹음파일이 클립보드에 복사되었습니다.\n\n{msg}\n\n"
+                "카카오톡 PC · 슬랙 · 메일 등 보낼 곳의 입력창에서\n"
+                "Ctrl+V 를 누르면 파일이 첨부/전송됩니다.")
+        else:
+            messagebox.showerror("파일 복사 실패", msg)
+
+    def _audio_open_default(self, path: str):
+        try:
+            if sys.platform == "win32":
+                os.startfile(path)
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception as e:
+            messagebox.showerror("열기 실패", str(e))
 
     def _share_clipboard(self, data: dict):
         """📋 클립보드에 요약 텍스트 복사"""
@@ -3124,6 +3202,7 @@ class App(tk.Tk):
             self._refresh_list()
             self._sum_detail_box.delete("1.0", "end")
             self._stt_detail_box.delete("1.0", "end")
+            self._list_player.clear()
 
     # ════════════════════════════════════════════════════
     # 설정 기능
