@@ -37,6 +37,58 @@ def _is_degenerate(text: str) -> bool:
     avg_len = sum(len(l) for l in lines) / len(lines)
     return unique_ratio < 0.15 and avg_len < 20
 
+
+_RUN_LIMIT = 15   # 같은 1~4어절이 연속 이만큼 반복되면 루프로 판정 (사람은 "네 네 네" 정도가 한계)
+
+
+def _runs(tokens: list):
+    """(시작, n, 반복횟수) — 1~4어절 n-gram이 _RUN_LIMIT 회 이상 연속 반복된 구간"""
+    out, i, L = [], 0, len(tokens)
+    while i < L:
+        best = None
+        for n in (1, 2, 3, 4):
+            if i + n > L:
+                break
+            unit, k = tokens[i:i + n], 1
+            while tokens[i + k * n:i + (k + 1) * n] == unit:
+                k += 1
+            if k >= _RUN_LIMIT and (best is None or k * n > best[1] * best[2]):
+                best = (i, n, k)
+        if best:
+            out.append(best)
+            i += best[1] * best[2]
+        else:
+            i += 1
+    return out
+
+
+def _has_inline_loop(text: str) -> bool:
+    """한 줄 안에서 같은 단어가 끝없이 반복되는 루프 감지.
+    실사례(2026-09-30, 62분 티타임): '네.' 20,143회 / '아이고' 1,247회 / '외국인' 1,200회 —
+    줄 단위 검사(_is_degenerate 기존 로직)로는 줄이 1개라 잡히지 않았음."""
+    return any(_runs(line.split()) for line in (text or "").splitlines())
+
+
+def _collapse_inline_loops(text: str) -> str:
+    """재시도로도 못 고친 루프를 1회만 남기고 잘라냄. 잘라낸 사실은 본문에 표시(조용한 삭제 금지)."""
+    out = []
+    for line in (text or "").splitlines():
+        toks = line.split()
+        runs = _runs(toks)
+        if not runs:
+            out.append(line); continue
+        res, pos = [], 0
+        for s, n, k in runs:
+            res += toks[pos:s] + toks[s:s + n] + [f"[반복 인식 {k}회 생략]"]
+            pos = s + n * k
+        out.append(" ".join(res + toks[pos:]))
+    return "\n".join(out)
+
+
+def _is_bad_stt(text: str) -> bool:
+    """줄 반복 루프 또는 줄 내부 단어 반복 루프"""
+    return _is_degenerate(text) or _has_inline_loop(text)
+
 # ── STT 프롬프트 ────────────────────────────────────────
 _STT_PROMPT_TEMPLATE = """이 오디오 파일을 한국어 텍스트로 정확히 전사해주세요.
 
@@ -1145,7 +1197,7 @@ def transcribe(audio_path: str, api_key: str, progress_cb=None,
 
         # STT 반복루프(긴 오디오를 한 컨텍스트로 처리하다 같은 짧은 줄만 반복 출력) 감지 시
         # 구간 분할 방식으로 재시도 — 이미 분할 처리였다면 재시도하지 않음
-        if _is_degenerate(text) and size <= _FILES_API_MAX_MB:
+        if _is_bad_stt(text) and size <= _FILES_API_MAX_MB:
             if status_cb: status_cb("반복 응답 감지 — 구간 분할로 재시도 중...")
             if progress_cb: progress_cb(10)
             text = _chunked_transcribe(client, audio_path, mime, stt_prompt,
@@ -1486,7 +1538,10 @@ def _get_duration(ffmpeg, audio_path):
 
 
 def _chunked_transcribe(client, audio_path, mime, stt_prompt,
-                        progress_cb, num_speakers, cancel_event=None):
+                        progress_cb, num_speakers, cancel_event=None,
+                        chunk_target_min=None, prompt_fn=None, status_cb=None):
+    """chunk_target_min: 구간 길이(분) 지정 (기본 _CHUNK_TARGET_MIN).
+    prompt_fn(part, total) -> str: 구간별 프롬프트 (정밀 재변환용). 없으면 stt_prompt 공통 사용."""
     ffmpeg = _find_ffmpeg()
     tmpdir = tempfile.mkdtemp(prefix="meeting_stt_")
     try:
@@ -1500,7 +1555,7 @@ def _chunked_transcribe(client, audio_path, mime, stt_prompt,
         duration = _get_duration(ffmpeg, safe_src)
         file_mb  = os.path.getsize(safe_src) / 1024 / 1024
         n_by_size     = int(file_mb / _CHUNK_MB) + 1
-        n_by_duration = int(duration // (_CHUNK_TARGET_MIN * 60)) + 1
+        n_by_duration = int(duration // ((chunk_target_min or _CHUNK_TARGET_MIN) * 60)) + 1
         n_chunks = max(2, n_by_size, n_by_duration)
         chunk_sec = duration / n_chunks
         chunks = []
@@ -1528,22 +1583,59 @@ def _chunked_transcribe(client, audio_path, mime, stt_prompt,
             chunk_ext  = Path(chunk_path).suffix.lower()
             chunk_mime = _MIME.get(chunk_ext, mime)
             chunk_mb   = os.path.getsize(chunk_path) / 1024 / 1024
-            if chunk_mb < _INLINE_LIMIT_MB:
-                text = _inline(client, chunk_path, chunk_mime, None, stt_prompt)
+            if prompt_fn:
+                stt_prompt = prompt_fn(i + 1, n)
+            if status_cb:
+                status_cb(f"정밀 STT {i + 1}/{n} 구간 변환 중...")
+            # 구간 하나의 빈 응답·일시 오류로 앞 구간 결과까지 전부 버려지지 않도록 3회 재시도
+            # (실사례: 62분 파일 7구간 중 마지막 구간 빈 응답 → 전체 실패, 2026-09-30)
+            text, last_err = "", None
+            for attempt in range(3):
+                if cancel_event and cancel_event.is_set():
+                    raise RuntimeError("사용자에 의해 중단되었습니다.")
+                try:
+                    if chunk_mb < _INLINE_LIMIT_MB:
+                        text = _inline(client, chunk_path, chunk_mime, None, stt_prompt)
+                    else:
+                        text = _upload_and_transcribe(
+                            client, chunk_path, chunk_mime, stt_prompt,
+                            progress_cb, pct_s, pct_e, cancel_event)
+                    if (text or "").strip():
+                        break
+                    last_err = "빈 응답"
+                except Exception as e:
+                    if "중단" in str(e):
+                        raise
+                    last_err = str(e)
+                if status_cb:
+                    status_cb(f"{i + 1}/{n} 구간 재시도 중 ({attempt + 1}/3 실패: {str(last_err)[:40]})")
+                time.sleep(5 * (attempt + 1))
             else:
-                text = _upload_and_transcribe(
-                    client, chunk_path, chunk_mime, stt_prompt,
-                    progress_cb, pct_s, pct_e, cancel_event)
-            if _is_degenerate(text):
-                # 청크 내에서도 반복루프가 나오면 1회 재시도 (동일 호출, temperature 재추첨으로 회피 시도)
-                if chunk_mb < _INLINE_LIMIT_MB:
-                    retry_text = _inline(client, chunk_path, chunk_mime, None, stt_prompt)
-                else:
-                    retry_text = _upload_and_transcribe(
-                        client, chunk_path, chunk_mime, stt_prompt,
-                        progress_cb, pct_s, pct_e, cancel_event)
-                if not _is_degenerate(retry_text):
+                raise RuntimeError(f"{i + 1}/{n} 구간 STT가 3회 모두 실패했습니다: {last_err}")
+            # 반복루프(줄 반복·줄 내부 단어 반복) 시 최대 2회 재시도 (temperature 재추첨으로 회피 시도)
+            for loop_try in range(2):
+                if not _is_bad_stt(text):
+                    break
+                if status_cb:
+                    status_cb(f"{i + 1}/{n} 구간 반복 인식 감지 — 재변환 중 ({loop_try + 1}/2)")
+                try:
+                    if chunk_mb < _INLINE_LIMIT_MB:
+                        retry_text = _inline(client, chunk_path, chunk_mime, None, stt_prompt)
+                    else:
+                        retry_text = _upload_and_transcribe(
+                            client, chunk_path, chunk_mime, stt_prompt,
+                            progress_cb, pct_s, pct_e, cancel_event)
+                except Exception as e:
+                    if "중단" in str(e):
+                        raise
+                    continue
+                if (retry_text or "").strip() and not _is_bad_stt(retry_text):
                     text = retry_text
+            if _has_inline_loop(text):
+                # 끝내 못 고치면 반복분을 잘라내되 본문에 '[반복 인식 N회 생략]'으로 흔적을 남김
+                text = _collapse_inline_loops(text)
+                if status_cb:
+                    status_cb(f"{i + 1}/{n} 구간 반복 인식을 정리했습니다 (본문에 표시)")
             results.append(text.strip())
             if progress_cb: progress_cb(pct_e)
 
@@ -1553,6 +1645,207 @@ def _chunked_transcribe(client, audio_path, mime, stt_prompt,
         return "\n\n".join(results)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ════════════════════════════════════════════════════════
+# 🔬 정밀 재변환 (v4.1.0) — 기획서: docs/기획서_정밀재변환.md
+#   ① 정밀 STT(전처리 + 5분 구간 + 참고 문맥)  ② 문맥 교정  ③ 정밀 요약
+#   프롬프트 텍스트는 모바일 GeminiService.kt 와 동일하게 유지할 것
+# ════════════════════════════════════════════════════════
+PRECISE_CHUNK_MIN   = 5       # 정밀 STT 구간 길이(분)
+PRECISE_REFINE_CHARS = 12000  # 문맥 교정 블록 크기(자)
+PRECISE_QUIET_DB    = -30     # 평균 음량이 이보다 작을 때만 음량 정규화 (충분히 큰 음성은 원본이 더 정확 — 실측)
+
+_PRECISE_STT_ADDON = """
+
+[정밀 전사 모드 — 추가 규칙]
+- 이 구간은 {part}/{total}번째 구간입니다. 구간 앞뒤가 문장 중간에서 잘렸을 수 있으니 들린 그대로 적습니다.
+- 한 단어도 빠뜨리지 말고 들리는 대로 모두 전사합니다. 요약·축약·정리 금지.
+- 숫자(금액·날짜·인원·비율)는 들린 그대로 아라비아 숫자로 적습니다.
+- 아래 [참고 문맥]의 인명·단체명·용어와 발음이 비슷하게 들리면 참고 문맥의 표기를 사용합니다.
+- 잘 들리지 않는 부분은 추측해서 채우지 말고 [불명확: 들린 소리] 형식으로 남깁니다.
+- 화자를 표기할 때는 [참고 문맥]의 이름을 쓰고, 모든 구간에서 같은 사람은 같은 표기를 유지합니다. 누구인지 확신이 없으면 기본 규칙의 표기 방식을 따릅니다.
+- 같은 문장을 반복해서 적지 않습니다(실제로 되풀이해 말한 경우만 적음). 알아듣기 어려운 구간이 이어지면 [불명확] 한 줄로 묶습니다."""
+
+_PRECISE_REFINE_PROMPT = """당신은 한국어 회의 녹취록 교정 전문가입니다.
+아래는 음성인식(STT)으로 만든 회의 녹취록의 일부({part}/{total})입니다. 음성인식 오류를 교정해 주세요.
+
+[교정 규칙]
+1. 발음이 비슷해서 잘못 인식된 단어만 문맥에 맞게 고칩니다. (예: "변진 교리"→"견진 교리", "보자 신부님"→"보좌신부님")
+2. 내용을 요약·삭제·재배열하지 않습니다. 줄 수와 화자 태그([화자1], [홍길동] 등)는 그대로 유지합니다.
+3. [참고 문맥]의 인명·단체명·용어 표기를 우선 사용합니다.
+4. 교정이 확실하지 않은 고유명사·숫자는 원문을 두고 바로 뒤에 (?)를 붙입니다.
+5. 도저히 의미를 알 수 없는 구간은 원문을 그대로 둡니다. 새 내용을 지어내지 않습니다.
+6. 설명이나 머리말 없이 교정된 녹취록 본문만 출력합니다.
+
+[참고 문맥]
+{context}
+
+[녹취록]
+{text}"""
+
+_PRECISE_SUMMARY_INSTRUCTION = """[정밀 요약 모드 — 반드시 준수]
+1. 이 녹취록은 음성 상태가 좋지 않아 정밀 보정을 거쳤습니다. 녹취에 없는 사실은 절대 추가하지 않습니다.
+2. 문맥으로 바로잡은 인명·숫자·용어 뒤에는 *(추정)*, 끝내 의미를 알 수 없는 부분은 *(STT 불명확)* 을 붙입니다. (?)가 붙은 원문 단어도 같은 방식으로 처리합니다.
+3. 금액·날짜·인원 등 수치가 서로 맞지 않으면(합계 불일치, 같은 일정의 다른 날짜 등) 임의로 한쪽을 고르지 말고 두 값을 모두 적고 확인 필요로 표시합니다.
+4. 결론·결정사항은 녹취에서 실제로 합의가 확인된 것만 적습니다. 근거가 약하면 "논의됨"으로 낮춥니다.
+5. 회의록 맨 끝(STT 엔진 표기 앞)에 아래 섹션을 추가합니다. 확인할 것이 없으면 "- 없음"으로 적습니다.
+
+## 📌 확인 필요
+- [ ] (불확실한 수치·일자·인명과 그 이유를 한 줄씩)"""
+
+
+def _context_block(context: str) -> str:
+    context = (context or "").strip()
+    return f"\n\n[참고 문맥]\n{context}" if context else ""
+
+
+def make_precise_stt_prompt(part: int, total: int, context: str = "",
+                            num_speakers: int = 0) -> str:
+    """정밀 STT 프롬프트 = 기존 STT 프롬프트 + 정밀 규칙 + (있으면) 참고 문맥"""
+    return (_make_stt_prompt(num_speakers)
+            + _PRECISE_STT_ADDON.format(part=part, total=total)
+            + _context_block(context))
+
+
+def precise_summary_instruction(context: str = "") -> str:
+    return _PRECISE_SUMMARY_INSTRUCTION + _context_block(context)
+
+
+def _mean_volume(ffmpeg: str, path: str):
+    """평균 음량(dB). 측정 실패 시 None (전처리 없이 진행)."""
+    import re as _re
+    tmpdir = tempfile.mkdtemp(prefix="vol_")
+    try:
+        safe = os.path.join(tmpdir, "src" + Path(path).suffix.lower())
+        shutil.copy2(path, safe)
+        r = subprocess.run([ffmpeg, "-hide_banner", "-i", safe, "-af", "volumedetect",
+                            "-f", "null", "-"], capture_output=True, timeout=600,
+                           encoding="utf-8", errors="replace")
+        m = _re.search(r"mean_volume:\s*(-?[\d.]+) dB", r.stderr or "")
+        return float(m.group(1)) if m else None
+    except Exception:
+        return None
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _preprocess_audio(ffmpeg: str, src: str, dst_dir: str) -> str:
+    """음량 정규화·모노 16kHz 변환 (작게 녹음된 음성 보강).
+    잡음 제거(afftdn)·대역 제한은 실측에서 오히려 반복 환각을 유발해 제외함.
+    실패하면 예외 — 조용히 원본으로 대체하지 않고 호출자가 판단."""
+    ext = Path(src).suffix.lower()
+    safe_src = os.path.join(dst_dir, f"orig{ext}")
+    shutil.copy2(src, safe_src)          # 한글 경로 우회
+    out = os.path.join(dst_dir, "clean.mp3")
+    r = subprocess.run(
+        [ffmpeg, "-y", "-i", safe_src, "-ac", "1", "-ar", "16000",
+         "-af", "dynaudnorm=f=200:g=15",
+         "-c:a", "libmp3lame", "-b:a", "96k", out],
+        capture_output=True, timeout=900, encoding="utf-8", errors="replace")
+    if r.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) < 1024:
+        raise RuntimeError(f"음성 전처리(ffmpeg) 실패: {(r.stderr or '')[-300:]}")
+    return out
+
+
+def precise_transcribe(audio_path: str, api_key: str, context: str = "",
+                       num_speakers: int = 0, progress_cb=None,
+                       status_cb=None, cancel_event=None) -> tuple:
+    """① 정밀 STT: 전처리 → 5분 구간 → 구간별 참고 문맥 프롬프트. (ok, text)"""
+    if not api_key:
+        return False, "Gemini API 키가 없습니다. 설정 탭에서 입력해주세요."
+    if not audio_path or not os.path.exists(audio_path):
+        return False, f"음성 파일을 찾을 수 없습니다: {audio_path}"
+    tmpdir = tempfile.mkdtemp(prefix="precise_stt_")
+    try:
+        ffmpeg = _find_ffmpeg()
+        if progress_cb: progress_cb(3)
+        mv = _mean_volume(ffmpeg, audio_path)
+        if mv is not None and mv < PRECISE_QUIET_DB:
+            if status_cb: status_cb(f"작게 녹음됨(평균 {mv:.0f}dB) — 음량 정규화 중...")
+            src, mime = _preprocess_audio(ffmpeg, audio_path, tmpdir), "audio/mp3"
+        else:
+            src = audio_path
+            mime = _MIME.get(Path(audio_path).suffix.lower(), "audio/mp3")
+        client = _client(api_key)
+        text = _chunked_transcribe(
+            client, src, mime, _make_stt_prompt(num_speakers),
+            progress_cb, num_speakers, cancel_event,
+            chunk_target_min=PRECISE_CHUNK_MIN,
+            prompt_fn=lambda p, t: make_precise_stt_prompt(p, t, context, num_speakers),
+            status_cb=status_cb)
+        if _is_degenerate(text):
+            return False, "정밀 STT 결과가 반복 응답으로 판정되었습니다. 다시 시도해주세요."
+        return True, text
+    except Exception as e:
+        return False, _friendly_error(str(e))
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _split_blocks(text: str, limit: int) -> list:
+    """줄 경계를 지키며 limit 자 내외 블록으로 분할"""
+    blocks, cur, size = [], [], 0
+    for line in text.splitlines():
+        if cur and size + len(line) > limit:
+            blocks.append("\n".join(cur)); cur, size = [], 0
+        cur.append(line); size += len(line) + 1
+    if cur:
+        blocks.append("\n".join(cur))
+    return blocks
+
+
+def refine_transcript(stt_text: str, api_key: str, context: str = "",
+                      progress_cb=None, status_cb=None,
+                      cancel_event=None) -> tuple:
+    """② 문맥 교정: 블록별로 오인식만 교정. 한 블록이라도 실패하면 전체 실패로 반환
+    (원문으로 조용히 대체하면 '교정됨'으로 오인하므로)."""
+    if not api_key:
+        return False, "Gemini API 키가 없습니다."
+    if not (stt_text or "").strip():
+        return False, "교정할 STT 텍스트가 비어 있습니다."
+    try:
+        client = _client(api_key)
+        blocks = _split_blocks(stt_text, PRECISE_REFINE_CHARS)
+        out = []
+        for i, block in enumerate(blocks):
+            if cancel_event and cancel_event.is_set():
+                return False, "사용자에 의해 중단되었습니다."
+            if status_cb: status_cb(f"문맥 교정 {i + 1}/{len(blocks)} 블록 처리 중...")
+            prompt = _PRECISE_REFINE_PROMPT.format(
+                part=i + 1, total=len(blocks),
+                context=(context or "").strip() or "(없음)", text=block)
+            # 블록당 3회 시도 (모바일 correctTranscript 와 동일). 빈 응답·과도한 축약은 실패 시도로 간주.
+            # 실사례(2026-09-30 티타임): 2/3 블록이 원문의 35%로 잘려 나옴 → 1회 시도였다면 전체 실패
+            fixed, why = "", ""
+            for attempt in range(3):
+                if cancel_event and cancel_event.is_set():
+                    return False, "사용자에 의해 중단되었습니다."
+                try:
+                    resp = client.models.generate_content(
+                        model=GEMINI_SUMMARY_MODEL, contents=prompt,
+                        config=types.GenerateContentConfig(temperature=0.2,
+                                                           max_output_tokens=65536))
+                    fixed = (resp.text or "").strip()
+                    if not fixed:
+                        why = "빈 응답"
+                    elif len(fixed) < len(block) * 0.6:
+                        # 과도한 축약(요약해버림) 방지 — 원문 대비 60% 미만이면 실패 시도
+                        why = f"원문보다 지나치게 짧음({len(fixed)}/{len(block)}자)"
+                    else:
+                        break
+                except Exception as e:
+                    why = _friendly_error(str(e))
+                if status_cb:
+                    status_cb(f"문맥 교정 {i + 1}/{len(blocks)} 블록 재시도 ({attempt + 1}/3 실패: {why[:40]})")
+            else:
+                return False, (f"문맥 교정 {i + 1}/{len(blocks)} 블록이 3회 모두 실패했습니다: {why}. "
+                               f"요약된 결과를 교정본으로 쓰지 않도록 중단했습니다.")
+            out.append(fixed)
+            if progress_cb: progress_cb(int((i + 1) / len(blocks) * 100))
+        return True, "\n".join(out)
+    except Exception as e:
+        return False, _friendly_error(str(e))
 
 
 def _friendly_error(msg: str) -> str:

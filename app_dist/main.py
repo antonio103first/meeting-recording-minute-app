@@ -41,7 +41,7 @@ import prescreen_tab
 import audio_player
 
 # ── 색상 / 스타일 상수 ──────────────────────────────────
-APP_VERSION = "4.0.5"
+APP_VERSION = "4.1.0"
 APP_NAME    = "Roundtable"
 
 BG          = "#F5F6FA"
@@ -518,6 +518,8 @@ class App(tk.Tk):
                   self._save_selected_to_obsidian, w=11).pack(side="left", padx=4)
         self._btn(btn_row, "📤 공유 ▼", "#16A085",
                   self._share_menu, w=11).pack(side="left", padx=4)
+        self._btn(btn_row, "🔬 정밀 재변환", "#B9770E",
+                  self._precise_redo_dialog, w=13).pack(side="left", padx=4)
         self._btn(btn_row, "🔍 찾기/바꾸기", "#2E86C1",
                   self._find_replace_dialog, w=13).pack(side="left", padx=4)
         self._btn(btn_row, "🗑 삭제", DANGER,
@@ -2473,6 +2475,223 @@ class App(tk.Tk):
 
         result = self._save_obsidian_note(summary_text, file_name, mode=inferred_mode)
         messagebox.showinfo("Obsidian 저장", result)
+
+    # ── 🔬 정밀 재변환 (v4.1.0) ─────────────────────────
+    _PRECISE_MODES = [
+        ("topic", "다자간협의"), ("formal_md", "업무미팅"), ("ir_md", "IR미팅"),
+        ("flow", "티타임"), ("phone", "전화통화메모"), ("lecture_md", "강의요약"),
+        ("speaker", "주간회의"), ("conference", "컨퍼런스"), ("org", "단체회의"),
+    ]
+
+    def _guess_mode_from_name(self, file_name: str) -> str:
+        """파일명의 모드 라벨(예: _티타임, _단체회의)로 원래 양식 추정"""
+        name = file_name or ""
+        for key, label in self._PRECISE_MODES:
+            if label in name:
+                return key
+        for label, key in (("네트워킹", "flow"), ("업무", "formal_md"), ("회의록", "topic")):
+            if label in name:
+                return key
+        return self._pipeline_sum_mode
+
+    def _precise_redo_dialog(self):
+        """🔬 정밀 재변환 — 선택한 회의를 ①정밀 STT ②문맥 교정 ③정밀 요약으로 다시 처리.
+        기존 파일은 덮어쓰지 않고 _정밀STT / _정밀요약 으로 새로 저장."""
+        sel = self._tree.selection()
+        if not sel:
+            messagebox.showwarning("알림", "목록에서 다시 처리할 회의를 선택해주세요.")
+            return
+        if self._processing:
+            messagebox.showwarning("알림", "이미 처리 중입니다. 완료 후 실행해주세요.")
+            return
+        if not self._cfg.get("gemini_api_key", ""):
+            messagebox.showwarning("알림", "정밀 재변환은 Gemini를 사용합니다. 설정 탭에서 Gemini API 키를 입력해주세요.")
+            return
+
+        data = dict(database.get_meeting(int(sel[0])) or {})
+        mp3 = data.get("mp3_local_path") or ""
+        has_audio = bool(mp3) and os.path.exists(mp3)
+        has_stt = bool((data.get("stt_text") or "").strip())
+        if not has_audio and not has_stt:
+            messagebox.showwarning("알림", "이 회의에는 음성 파일도 STT 원문도 없어 다시 처리할 수 없습니다.")
+            return
+
+        dlg = tk.Toplevel(self)
+        dlg.title("🔬 정밀 재변환")
+        dlg.geometry("620x560")
+        dlg.transient(self)
+        dlg.grab_set()
+        pad = {"padx": 16, "pady": (8, 0)}
+
+        tk.Label(dlg, text=f"대상: {data.get('file_name', '')}",
+                 font=FONT_BODY, anchor="w").pack(fill="x", **pad)
+        tk.Label(dlg, text=("🎙 음성 파일 있음 — 음성부터 다시 변환할 수 있습니다." if has_audio
+                            else "⚠ 음성 파일이 없어 기존 STT 원문을 교정합니다."),
+                 font=FONT_SMALL, fg=TEXT_LIGHT, anchor="w").pack(fill="x", padx=16)
+
+        tk.Label(dlg, text="참고 문맥 — 참석자 이름·직함, 회사/단체명, 전문용어, 회의 배경 (정확도에 가장 큰 영향)",
+                 font=FONT_SMALL, anchor="w", wraplength=580, justify="left").pack(fill="x", **pad)
+        ctx_box = scrolledtext.ScrolledText(dlg, height=9, font=FONT_BODY, wrap="word")
+        ctx_box.pack(fill="both", expand=True, padx=16, pady=(4, 0))
+        ctx_box.insert("1.0", f"회의: {data.get('file_name', '')}\n참석자: \n용어: ")
+
+        opt = tk.Frame(dlg)
+        opt.pack(fill="x", **pad)
+        v_audio = tk.BooleanVar(value=has_audio)
+        tk.Checkbutton(opt, text="① 음성으로 다시 변환 (5분 구간 + 참고 문맥)",
+                       variable=v_audio, state=("normal" if has_audio else "disabled"),
+                       fg="black").pack(anchor="w")
+        v_refine = tk.BooleanVar(value=True)
+        tk.Checkbutton(opt, text="② 문맥으로 오인식 교정", variable=v_refine,
+                       fg="black").pack(anchor="w")
+        tk.Label(opt, text="③ 정밀 요약은 항상 실행 (불명확 표기 + 확인 필요 목록)",
+                 font=FONT_SMALL, fg=TEXT_LIGHT).pack(anchor="w")
+
+        mode_row = tk.Frame(dlg)
+        mode_row.pack(fill="x", **pad)
+        tk.Label(mode_row, text="요약 양식:", font=FONT_BODY).pack(side="left")
+        mode_map = dict(self._PRECISE_MODES)
+        v_mode = tk.StringVar(value=mode_map.get(
+            self._guess_mode_from_name(data.get("file_name", "")), "다자간협의"))
+        ttk.Combobox(mode_row, textvariable=v_mode, values=list(mode_map.values()),
+                     state="readonly", width=16).pack(side="left", padx=8)
+
+        def start():
+            mode_key = {lbl: k for k, lbl in self._PRECISE_MODES}[v_mode.get()]
+            context = ctx_box.get("1.0", "end").strip()
+            use_audio = bool(v_audio.get()) and has_audio
+            do_refine = bool(v_refine.get())
+            dlg.destroy()
+            self._run_precise_redo(data, context, use_audio, do_refine, mode_key)
+
+        btns = tk.Frame(dlg)
+        btns.pack(fill="x", padx=16, pady=12)
+        self._btn(btns, "▶ 실행", SUCCESS, start, w=10).pack(side="right", padx=4)
+        self._btn(btns, "취소", DANGER, dlg.destroy, w=8).pack(side="right", padx=4)
+
+    def _run_precise_redo(self, data, context, use_audio, do_refine, mode_key):
+        """워커 스레드에서 3단계 실행. tkinter 접근은 메인 스레드 폴링으로만 (v4.0.5 교훈)."""
+        import queue
+        api_key = self._cfg.get("gemini_api_key", "")
+        q = queue.Queue()
+        self._processing = True
+        self._cancel_event.clear()
+
+        prog = tk.Toplevel(self)
+        prog.title("🔬 정밀 재변환 진행 중")
+        prog.geometry("480x150")
+        prog.transient(self)
+        status_var = tk.StringVar(value="준비 중...")
+        tk.Label(prog, textvariable=status_var, font=FONT_BODY,
+                 wraplength=440, justify="left").pack(fill="x", padx=16, pady=(16, 8))
+        bar = ttk.Progressbar(prog, maximum=100)
+        bar.pack(fill="x", padx=16)
+        self._btn(prog, "중단", DANGER, self._cancel_event.set, w=8).pack(pady=10)
+        prog.protocol("WM_DELETE_WINDOW", self._cancel_event.set)
+
+        # 진행률 구간 배분 (없는 단계는 빼고 비율 재계산)
+        stages = (["stt"] if use_audio else []) + (["refine"] if do_refine else []) + ["sum"]
+        weights = {"stt": 60, "refine": 25, "sum": 15}
+        total_w = sum(weights[s] for s in stages)
+
+        def stage_range(name):
+            a = sum(weights[s] for s in stages[:stages.index(name)]) * 100 // total_w
+            return a, a + weights[name] * 100 // total_w
+
+        dt_override = ""
+        try:
+            mp3 = data.get("mp3_local_path") or ""
+            if mp3 and os.path.exists(mp3):
+                dt_override = datetime.fromtimestamp(
+                    os.path.getctime(mp3)).strftime("%Y년 %m월 %d일 %H:%M")
+            elif data.get("created_at"):
+                dt_override = datetime.strptime(
+                    data["created_at"][:16], "%Y-%m-%d %H:%M").strftime("%Y년 %m월 %d일 %H:%M")
+        except Exception:
+            pass
+
+        def run():
+            def st(msg): q.put(("status", msg))
+            def pg(name):
+                a, b = stage_range(name)
+                return lambda v: q.put(("prog", a + (b - a) * v // 100))
+            steps = []
+            stt_text = data.get("stt_text") or ""
+            if use_audio:
+                ok, res = gemini.precise_transcribe(
+                    data["mp3_local_path"], api_key, context,
+                    progress_cb=pg("stt"), status_cb=st, cancel_event=self._cancel_event)
+                if not ok:
+                    q.put(("fail", f"① 정밀 STT 실패: {res}")); return
+                stt_text = res
+                steps.append("정밀 STT")
+            if do_refine:
+                ok, res = gemini.refine_transcript(
+                    stt_text, api_key, context, progress_cb=pg("refine"),
+                    status_cb=st, cancel_event=self._cancel_event)
+                if not ok:
+                    q.put(("fail", f"② 문맥 교정 실패: {res}")); return
+                stt_text = res
+                steps.append("문맥 교정")
+            st("③ 정밀 요약 작성 중...")
+            ok, summary = gemini.summarize(
+                stt_text, api_key, progress_cb=pg("sum"), summary_mode=mode_key,
+                cancel_event=self._cancel_event,
+                custom_instruction=gemini.precise_summary_instruction(context),
+                dt_override=dt_override)
+            if not ok:
+                q.put(("fail", f"③ 정밀 요약 실패: {summary}")); return
+            steps.append("정밀 요약")
+            summary = summary.rstrip() + (
+                f"\n\n*🔬 정밀 재변환: {' → '.join(steps)} (Gemini) · "
+                f"{datetime.now().strftime('%Y-%m-%d')}*")
+            q.put(("done", (stt_text, summary)))
+
+        def poll():
+            try:
+                while True:
+                    kind, val = q.get_nowait()
+                    if kind == "status":
+                        status_var.set(val)
+                    elif kind == "prog":
+                        bar["value"] = val
+                    else:
+                        self._processing = False
+                        prog.destroy()
+                        if kind == "fail":
+                            messagebox.showerror("정밀 재변환 실패", val)
+                        else:
+                            self._finish_precise_redo(data, *val)
+                        return
+            except queue.Empty:
+                pass
+            self.after(200, poll)
+
+        threading.Thread(target=run, daemon=True).start()
+        self.after(200, poll)
+
+    def _finish_precise_redo(self, data, stt_text, summary):
+        """결과 저장 — 기존 파일 보존, _정밀STT/_정밀요약 새 파일 + DB 갱신"""
+        base = re.sub(r"_(회의록|STT)$", "", (data.get("file_name") or "회의").strip())
+        msgs = []
+        ok1, p1 = fm.save_stt_text(stt_text, str(config.STT_SAVE_DIR), base + "_정밀STT")
+        msgs.append(f"{'✅' if ok1 else '❌'} STT 저장: {Path(p1).name if ok1 else p1}")
+        ok2, p2 = fm.save_summary_text(summary, str(config.SUMMARY_SAVE_DIR), base + "_정밀요약")
+        msgs.append(f"{'✅' if ok2 else '❌'} 요약 저장: {Path(p2).name if ok2 else p2}")
+        mid = data.get("id")
+        if mid:
+            database.update_meeting_summary(
+                mid, stt_text=stt_text, summary_text=summary,
+                summary_local_path=(p2 if ok2 else None))
+            msgs.append(f"✅ 목록 갱신 (ID: {mid}) — 기존 파일은 그대로 보존")
+        self._refresh_list()
+        if mid and self._tree.exists(str(mid)):
+            self._tree.selection_set(str(mid))
+            self._tree.see(str(mid))
+        self._detail_nb.select(0)
+        messagebox.showinfo(
+            "🔬 정밀 재변환 완료",
+            "\n".join(msgs + ["", "Obsidian 저장이 필요하면 목록에서 📓 Obsidian 을 눌러주세요."]))
 
     # ── 마크다운 렌더러 (tkinter Text 태그 기반) ─────────
     def _render_md(self, widget, md_text: str):
