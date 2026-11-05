@@ -41,7 +41,7 @@ import prescreen_tab
 import audio_player
 
 # ── 색상 / 스타일 상수 ──────────────────────────────────
-APP_VERSION = "4.1.4"
+APP_VERSION = "4.1.5"
 APP_NAME    = "Roundtable"
 
 BG          = "#F5F6FA"
@@ -777,6 +777,19 @@ class App(tk.Tk):
         tk.Label(gpt_card,
                  text="  입력 시 STT 엔진과 AI 요약 엔진에서 'ChatGPT' 선택 가능",
                  font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
+
+        # ─ 인명·호칭 사전 (v4.1.5) ───────────────────────
+        self._card(inner, "👤 인명·호칭 사전").pack(fill="x", **pad)
+        ng_card = self._last_card
+        tk.Label(ng_card, text="자주 나오는 인물의 올바른 표기와 역할을 한 줄씩 적어 두면 문맥 교정·요약에 항상 반영됩니다. (매번 입력 불필요)",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT, wraplength=620, justify="left").pack(anchor="w")
+        tk.Label(ng_card, text="예)  김진호 사장 — 케이런 사장 (STT에서 김진우로 잘못 나옴)",
+                 font=FONT_SMALL, bg=CARD_BG, fg=TEXT_LIGHT).pack(anchor="w")
+        self._ng_text = scrolledtext.ScrolledText(
+            ng_card, height=6, font=FONT_BODY, wrap="word", bg="#FAFAFA", relief="solid", bd=1)
+        self._ng_text.insert("1.0", self._cfg.get("name_glossary", ""))
+        self._ng_text.pack(fill="x", pady=4)
+        self._btn(ng_card, "저장", ACCENT, self._save_name_glossary, w=8).pack(anchor="w", padx=4)
 
         # ─ 커스텀 프롬프트 ──────────────────────────────
         self._card(inner, "🎯 요약 커스텀 프롬프트").pack(fill="x", **pad)
@@ -1724,7 +1737,7 @@ class App(tk.Tk):
                 self.after(0, lambda: self._stt_status_var.set("STT 문맥 교정 중..."))
                 try:
                     rok, rtext = gemini.refine_transcript(
-                        text, gkey, cancel_event=self._cancel_event, fix_speakers=True,
+                        text, gkey, context=self._glossary_block(), cancel_event=self._cancel_event, fix_speakers=True,
                         status_cb=lambda msg: self.after(0, lambda: self._stt_status_var.set(msg)))
                 except Exception as e:
                     rok, rtext = False, f"교정 오류: {e}"
@@ -1838,6 +1851,7 @@ class App(tk.Tk):
         custom_inst = ""
         if self._cfg.get("custom_prompt_enabled") and self._cfg.get("custom_prompt_text"):
             custom_inst = self._cfg["custom_prompt_text"]
+        custom_inst = chr(10).join(filter(None, [custom_inst, self._glossary_block()]))
 
         prev_notes = self._get_obsidian_notes_content()
 
@@ -2191,6 +2205,7 @@ class App(tk.Tk):
             self._nb.select(2)
             return
 
+        custom_text = chr(10).join(filter(None, [custom_text, self._glossary_block()]))
         self._processing = True
         self._cancel_event.clear()
         self._btn_pipeline.config(state="disabled")
@@ -3798,6 +3813,20 @@ class App(tk.Tk):
                 f"{'✅' if ok else '❌'} {msg}"))
         threading.Thread(target=_run, daemon=True).start()
 
+    def _save_name_glossary(self):
+        self._cfg["name_glossary"] = self._ng_text.get("1.0", "end").strip()
+        config.save_config(self._cfg)
+        messagebox.showinfo("저장 완료", "인명·호칭 사전이 저장되었습니다.")
+
+    def _glossary_block(self) -> str:
+        """인명 사전 → 교정·요약 프롬프트에 넣을 블록 (비어 있으면 빈 문자열)"""
+        g = (self._cfg.get("name_glossary", "") or "").strip()
+        if not g:
+            return ""
+        return ("[인명 사전 — 반드시 이 표기와 역할을 우선]" + chr(10) + g + chr(10) +
+                "※ 사전에 있는 인물의 이름이 STT에서 다르게 나오면 사전의 표기로 바로잡는다. "
+                "사전에 없는 호칭(회장님 등)을 사전의 인물과 임의로 같은 사람으로 연결하지 않는다.")
+
     def _save_custom_prompt(self):
         self._cfg["custom_prompt_enabled"] = self._cp_enabled_var.get()
         self._cfg["custom_prompt_text"] = self._cp_text.get("1.0", "end").strip()
@@ -4235,7 +4264,7 @@ class App(tk.Tk):
         global_prompt = ""
         if self._cfg.get("custom_prompt_enabled") and self._cfg.get("custom_prompt_text"):
             global_prompt = self._cfg["custom_prompt_text"]
-        combined_inst = "\n".join(filter(None, [global_prompt, custom_inst]))
+        combined_inst = chr(10).join(filter(None, [global_prompt, custom_inst, self._glossary_block()]))
 
         # UI 초기화
         self._b_cancel_event = threading.Event()
