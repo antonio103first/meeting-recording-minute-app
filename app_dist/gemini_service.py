@@ -1282,6 +1282,19 @@ def _transcribe_once(audio_path: str, api_key: str, progress_cb=None,
         return False, _friendly_error(str(e))
 
 
+# 발언자 구분이 핵심인 양식(주간회의 화자코드·IR·본당)은 제외
+_SPEAKER_CENTRIC_MODES = ("speaker", "ir_md", "org")
+
+_SPEAKER_CAUTION = """
+
+[발언자 표기 제한 — 반드시 준수, 위의 화자 구분·표기 규칙과 충돌하면 이 규칙이 우선]
+- STT의 [화자N] 태그는 자주 틀립니다(한 사람이 여러 번호로 쪼개지거나, 두 사람이 한 번호로 합쳐짐). 번호 하나를 한 사람으로 가정하지 마십시오.
+- 화자 번호마다 역할명(기술 담당자·연구원·개발자·책임자 등)을 지어 붙이지 마십시오. 녹취에서 그 호칭·직함이 직접 언급된 경우가 아니면 쓰지 않습니다.
+- 발언자가 분명한 경우(자기 소개, 이름 호명, 본인만 알 수 있는 사실)에만 이름·역할을 쓰고, 그 외에는 상대방 전체를 `[상대방]` 하나로 통칭하거나 주어 없이 내용만 서술합니다. `[상대방1]`/`[상대방2]` 식의 구분은 서로 다른 사람임이 확실할 때만 씁니다.
+- 같은 내용을 여러 발언자가 말한 것처럼 중복 서술하지 말고, 한 사람의 발언이 번호만 달리 반복된 것으로 보이면 하나로 합칩니다.
+- `[화자1]`, `[화자2]` 같은 번호 표기는 요약 본문에 쓰지 않습니다."""
+
+
 def summarize(stt_text: str, api_key: str, progress_cb=None,
               summary_mode: str = "speaker", cancel_event=None,
               custom_instruction: str = "",
@@ -1356,6 +1369,9 @@ def summarize(stt_text: str, api_key: str, progress_cb=None,
 
         if custom_instruction and custom_instruction.strip():
             prompt += f"\n\n[추가 지시사항]\n{custom_instruction.strip()}"
+        # v4.1.4: STT 화자 태그는 틀리는 일이 잦아, 화자 중심이 아닌 양식은 발언자 귀속을 확실할 때만 한다.
+        if summary_mode not in _SPEAKER_CENTRIC_MODES:
+            prompt += _SPEAKER_CAUTION
         if progress_cb: progress_cb(30)
 
         # 하트비트: 요약 API 응답 대기 중 10초마다 경과 시간 표시
@@ -1866,9 +1882,38 @@ def _split_blocks(text: str, limit: int) -> list:
     return blocks
 
 
+def _normalize_speaker_tags(text: str) -> str:
+    """줄머리 `[화2]`·`[화 자2]` 같은 변형 태그를 `[화자2]` 로 복구"""
+    return re.sub(r"(?m)^\[화\s?자?\s?(\d+)\]", lambda m: "[화자" + m.group(1) + "]", text)
+
+
+def _speaker_tags_ok(orig: str, fixed: str) -> bool:
+    """교정본의 태그 검증: 원문에 없던 번호가 생기지 않았고, 원문이 전 줄 태그형이면 교정본도 전 줄 태그형"""
+    tag = re.compile(r"^\[화자(\d+)\]")
+    o_lines = [l for l in orig.splitlines() if l.strip()]
+    f_lines = [l for l in fixed.splitlines() if l.strip()]
+    o_tags = {m.group(1) for l in o_lines for m in [tag.match(l)] if m}
+    f_tags = {m.group(1) for l in f_lines for m in [tag.match(l)] if m}
+    if not f_tags <= o_tags:
+        return False
+    if o_lines and all(tag.match(l) for l in o_lines):
+        return all(tag.match(l) for l in f_lines)
+    return True
+
+
+_SPEAKER_FIX_ADDON = """[화자 태그 교정 — 규칙 2의 '화자 태그 유지'에 대한 예외]
+이 녹취록의 [화자N] 태그는 음성 자동 구분 결과라 틀린 곳이 많습니다. 아래 경우에 한해 태그를 바로잡습니다.
+- 질문 뒤의 짧은 대답("네", "아니요", "맞아요")이 질문한 사람과 같은 번호로 붙어 있으면, 대답한 사람의 태그로 바꿉니다.
+- 한 줄 안에 서로 다른 사람의 말이 섞여 있으면(예: 질문과 그에 대한 대답이 한 줄), 줄을 나누어 각자의 태그를 붙입니다.
+- 문장이 중간에 끊겨 다른 번호로 이어진 경우(예: "일단 저희가 지난번에" / "보내드렸던")는 같은 사람의 태그로 통일합니다.
+- 같은 사람이 번호만 다르게 쪼개진 것이 분명하면 하나의 번호로 통일합니다.
+- 확신이 없으면 원래 태그를 그대로 둡니다. 존재하지 않던 새 번호를 만들지 않고, 발언 내용은 바꾸지 않습니다.
+"""
+
+
 def refine_transcript(stt_text: str, api_key: str, context: str = "",
                       progress_cb=None, status_cb=None,
-                      cancel_event=None) -> tuple:
+                      cancel_event=None, fix_speakers: bool = False) -> tuple:
     """② 문맥 교정: 블록별로 오인식만 교정. 한 블록이라도 실패하면 전체 실패로 반환
     (원문으로 조용히 대체하면 '교정됨'으로 오인하므로)."""
     if not api_key:
@@ -1883,7 +1928,10 @@ def refine_transcript(stt_text: str, api_key: str, context: str = "",
             if cancel_event and cancel_event.is_set():
                 return False, "사용자에 의해 중단되었습니다."
             if status_cb: status_cb(f"문맥 교정 {i + 1}/{len(blocks)} 블록 처리 중...")
-            prompt = _PRECISE_REFINE_PROMPT.format(
+            _tmpl = _PRECISE_REFINE_PROMPT
+            if fix_speakers:
+                _tmpl = _tmpl.replace("[참고 문맥]\n{context}", _SPEAKER_FIX_ADDON + "\n[참고 문맥]\n{context}")
+            prompt = _tmpl.format(
                 part=i + 1, total=len(blocks),
                 context=(context or "").strip() or "(없음)", text=block)
             # 블록당 3회 시도 (모바일 correctTranscript 와 동일). 빈 응답·과도한 축약은 실패 시도로 간주.
@@ -1899,8 +1947,12 @@ def refine_transcript(stt_text: str, api_key: str, context: str = "",
                                                            max_output_tokens=65536,
                                                            thinking_config=types.ThinkingConfig(thinking_budget=1024)))
                     fixed = (resp.text or "").strip()
+                    if fix_speakers and fixed:
+                        fixed = _normalize_speaker_tags(fixed)
                     if not fixed:
                         why = "빈 응답"
+                    elif fix_speakers and not _speaker_tags_ok(block, fixed):
+                        why = "화자 태그가 손상되었거나 없던 번호가 생김"
                     elif len(fixed) < len(block) * 0.6:
                         # 과도한 축약(요약해버림) 방지 — 원문 대비 60% 미만이면 실패 시도
                         why = f"원문보다 지나치게 짧음({len(fixed)}/{len(block)}자)"

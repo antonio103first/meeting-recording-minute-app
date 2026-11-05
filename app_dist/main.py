@@ -41,7 +41,7 @@ import prescreen_tab
 import audio_player
 
 # ── 색상 / 스타일 상수 ──────────────────────────────────
-APP_VERSION = "4.1.3"
+APP_VERSION = "4.1.4"
 APP_NAME    = "Roundtable"
 
 BG          = "#F5F6FA"
@@ -1724,7 +1724,7 @@ class App(tk.Tk):
                 self.after(0, lambda: self._stt_status_var.set("STT 문맥 교정 중..."))
                 try:
                     rok, rtext = gemini.refine_transcript(
-                        text, gkey, cancel_event=self._cancel_event,
+                        text, gkey, cancel_event=self._cancel_event, fix_speakers=True,
                         status_cb=lambda msg: self.after(0, lambda: self._stt_status_var.set(msg)))
                 except Exception as e:
                     rok, rtext = False, f"교정 오류: {e}"
