@@ -1896,7 +1896,8 @@ def refine_transcript(stt_text: str, api_key: str, context: str = "",
                     resp = client.models.generate_content(
                         model=GEMINI_SUMMARY_MODEL, contents=prompt,
                         config=types.GenerateContentConfig(temperature=0.2,
-                                                           max_output_tokens=65536))
+                                                           max_output_tokens=65536,
+                                                           thinking_config=types.ThinkingConfig(thinking_budget=1024)))
                     fixed = (resp.text or "").strip()
                     if not fixed:
                         why = "빈 응답"

@@ -41,7 +41,7 @@ import prescreen_tab
 import audio_player
 
 # ── 색상 / 스타일 상수 ──────────────────────────────────
-APP_VERSION = "4.1.2"
+APP_VERSION = "4.1.3"
 APP_NAME    = "Roundtable"
 
 BG          = "#F5F6FA"
@@ -1717,6 +1717,23 @@ class App(tk.Tk):
                         ok, text = False, f"STT 오류: {e}"
                     if ok:
                         used = "Clova (Gemini 실패 자동 폴백)"
+
+            # ★ v4.1.3: STT 후 텍스트 문맥 교정(오인식 단어만 수정) — 음성 재전사 없이 수십 초.
+            #   실패하면 원문을 그대로 쓰되 사유를 화면·엔진 표기에 드러낸다(조용한 대체 금지).
+            if ok and gkey and self._cfg.get("stt_refine", True) and not self._cancel_event.is_set():
+                self.after(0, lambda: self._stt_status_var.set("STT 문맥 교정 중..."))
+                try:
+                    rok, rtext = gemini.refine_transcript(
+                        text, gkey, cancel_event=self._cancel_event,
+                        status_cb=lambda msg: self.after(0, lambda: self._stt_status_var.set(msg)))
+                except Exception as e:
+                    rok, rtext = False, f"교정 오류: {e}"
+                if rok:
+                    text = rtext
+                    used += " + 문맥교정"
+                else:
+                    used += " (문맥교정 실패 — 원문 사용)"
+                    self.after(0, lambda m=rtext: self._stt_status_var.set(f"⚠️ 문맥 교정 실패, 원문 사용: {m[:50]}"))
 
             self._pipeline_stt_engine_used = used
             self.after(0, lambda: self._on_pipeline_stt_done(ok, text))
