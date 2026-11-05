@@ -41,7 +41,7 @@ import prescreen_tab
 import audio_player
 
 # ── 색상 / 스타일 상수 ──────────────────────────────────
-APP_VERSION = "4.1.0"
+APP_VERSION = "4.1.1"
 APP_NAME    = "Roundtable"
 
 BG          = "#F5F6FA"
@@ -1608,7 +1608,7 @@ class App(tk.Tk):
         # ① 설정 탭의 기본값을 자동 적용 (팝업 없음 — F-06 영역 A 정책)
         self._pipeline_sum_mode   = self._cfg.get("summary_mode", "topic")
         self._pipeline_ai_engine  = self._cfg.get("summary_engine", "gemini")
-        self._pipeline_stt_engine = self._cfg.get("stt_engine", "clova")
+        self._pipeline_stt_engine = self._cfg.get("stt_engine", "gemini")
         self._pipeline_rename_spk = False
 
         self._pipeline_company_name = ""
@@ -1706,7 +1706,17 @@ class App(tk.Tk):
                 except Exception as e:
                     ok, text = False, f"STT 오류: {e}"
                 if ok:
-                    used = "Gemini"
+                    used = f"Gemini ({getattr(gemini, 'LAST_STT_MODEL', '') or 'gemini'})"
+                elif (self._cfg.get("clova_invoke_url", "") and self._cfg.get("clova_secret_key", "")
+                      and not self._cancel_event.is_set()):
+                    # Gemini 모든 시도 실패 → Clova 자동 폴백
+                    self.after(0, lambda: self._stt_status_var.set("Gemini 실패 → CLOVA STT로 자동 전환…"))
+                    try:
+                        ok, text = _do_clova()
+                    except Exception as e:
+                        ok, text = False, f"STT 오류: {e}"
+                    if ok:
+                        used = "Clova (Gemini 실패 자동 폴백)"
 
             self._pipeline_stt_engine_used = used
             self.after(0, lambda: self._on_pipeline_stt_done(ok, text))

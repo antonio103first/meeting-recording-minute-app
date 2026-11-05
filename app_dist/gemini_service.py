@@ -3,6 +3,7 @@
 gemini-2.0-flash 사용
 """
 import os
+import re
 import time
 import tempfile
 import shutil
@@ -13,7 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from google import genai
 from google.genai import types
-from config import GEMINI_STT_MODEL, GEMINI_SUMMARY_MODEL, GEMINI_INLINE_LIMIT_MB
+from config import (GEMINI_STT_MODEL, GEMINI_STT_FALLBACK_MODEL,
+                    GEMINI_SUMMARY_MODEL, GEMINI_INLINE_LIMIT_MB)
 
 _MIME = {
     ".mp3": "audio/mp3", ".wav": "audio/wav",
@@ -1178,10 +1180,59 @@ def test_connection(api_key: str) -> tuple:
         return False, _friendly_error(str(e))
 
 
+LAST_STT_MODEL = ""   # 마지막으로 실제 성공한 STT 모델(회의록 표기용)
+
+
+def _stt_is_empty(text: str, size_mb: float) -> bool:
+    """사실상 빈 전사인지 판정 — 화자 태그·[불명확]만 있고 내용이 없는 경우.
+    (gemini-3.1-pro 가 큰 파일에서 '[화자1]: [불명확]' 12자만 돌려주고 성공으로 끝난 사례 대응)"""
+    body = re.sub(r"\[[^\]\n]{0,20}\]:?", "", text or "")
+    body = re.sub(r"\s+", "", body)
+    return size_mb >= 0.3 and len(body) < 30
+
+
 def transcribe(audio_path: str, api_key: str, progress_cb=None,
                num_speakers: int = 0, speaker_names: dict = None,
                cancel_event=None, status_cb=None) -> tuple:
-    """오디오 → 텍스트 (STT). cancel_event가 set되면 중단."""
+    """오디오 → 텍스트 (STT). 1차 모델(GEMINI_STT_MODEL) 2회 시도 → 실패·빈 결과면
+    폴백 모델(GEMINI_STT_FALLBACK_MODEL)로 1회. cancel_event가 set되면 즉시 중단."""
+    global GEMINI_STT_MODEL, LAST_STT_MODEL
+    primary = GEMINI_STT_MODEL
+    plan = [primary, primary]
+    if GEMINI_STT_FALLBACK_MODEL and GEMINI_STT_FALLBACK_MODEL != primary:
+        plan.append(GEMINI_STT_FALLBACK_MODEL)
+    try:
+        size_mb = os.path.getsize(audio_path) / 1024 / 1024
+    except OSError:
+        size_mb = 0.0
+    last_err = ""
+    try:
+        for n, model in enumerate(plan, 1):
+            if cancel_event and cancel_event.is_set():
+                return False, "사용자에 의해 중단되었습니다."
+            GEMINI_STT_MODEL = model
+            if n > 1 and status_cb:
+                status_cb(f"STT 재시도 ({n}/{len(plan)}) — {model}…")
+            ok, text = _transcribe_once(audio_path, api_key, progress_cb,
+                                        num_speakers, speaker_names,
+                                        cancel_event, status_cb)
+            if ok and not _stt_is_empty(text, size_mb):
+                LAST_STT_MODEL = model
+                return True, text
+            if cancel_event and cancel_event.is_set():
+                return False, "사용자에 의해 중단되었습니다."
+            last_err = text if not ok else "STT 결과가 비어 있습니다(음성 미인식)."
+            if not ok and ("API 키" in text or "찾을 수 없습니다" in text):
+                return False, text   # 재시도로 해결되지 않는 오류
+        return False, last_err
+    finally:
+        GEMINI_STT_MODEL = primary
+
+
+def _transcribe_once(audio_path: str, api_key: str, progress_cb=None,
+                     num_speakers: int = 0, speaker_names: dict = None,
+                     cancel_event=None, status_cb=None) -> tuple:
+    """오디오 → 텍스트 (STT) 1회 시도 — 현재 GEMINI_STT_MODEL 사용."""
     if not api_key:
         return False, "Gemini API 키가 없습니다. 설정 탭에서 입력해주세요."
     if not os.path.exists(audio_path):

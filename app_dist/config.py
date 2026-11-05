@@ -30,7 +30,8 @@ def _resolve_drive_folder_ids() -> tuple:
     return "", ""
 
 # ── AI 모델 설정 ─────────────────────────────────────────
-GEMINI_STT_MODEL       = "gemini-2.5-flash"
+GEMINI_STT_MODEL       = "gemini-3.1-pro-preview"   # 2026-11-05 실측: Clova·flash 대비 고유명사·화자 구분 우수
+GEMINI_STT_FALLBACK_MODEL = "gemini-2.5-flash"      # 1차 모델 실패·빈 결과 시 폴백
 GEMINI_SUMMARY_MODEL   = "gemini-2.5-flash"
 GEMINI_INLINE_LIMIT_MB = 10   # 이 크기 미만 → base64 인라인 (10MB 초과는 Files API 사용)
 
@@ -137,7 +138,7 @@ def load_config() -> dict:
         "chatgpt_api_key": "",
         "clova_invoke_url": "",
         "clova_secret_key": "",
-        "stt_engine": "clova",          # "gemini" | "clova" | "chatgpt"
+        "stt_engine": "gemini",         # "gemini" | "clova" | "chatgpt"
         "summary_engine": "gemini",     # "gemini" | "claude" | "chatgpt"
         "summary_mode": "speaker",      # "speaker"|"topic"|"formal_md"|"lecture_md"|"flow"
         "recording_dir": str(Path.home() / "Documents" / "Meeting recording"),
