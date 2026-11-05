@@ -41,7 +41,7 @@ import prescreen_tab
 import audio_player
 
 # ── 색상 / 스타일 상수 ──────────────────────────────────
-APP_VERSION = "4.1.1"
+APP_VERSION = "4.1.2"
 APP_NAME    = "Roundtable"
 
 BG          = "#F5F6FA"
@@ -1608,7 +1608,7 @@ class App(tk.Tk):
         # ① 설정 탭의 기본값을 자동 적용 (팝업 없음 — F-06 영역 A 정책)
         self._pipeline_sum_mode   = self._cfg.get("summary_mode", "topic")
         self._pipeline_ai_engine  = self._cfg.get("summary_engine", "gemini")
-        self._pipeline_stt_engine = self._cfg.get("stt_engine", "gemini")
+        self._pipeline_stt_engine = self._cfg.get("stt_engine", "clova")
         self._pipeline_rename_spk = False
 
         self._pipeline_company_name = ""
