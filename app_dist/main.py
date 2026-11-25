@@ -43,7 +43,7 @@ import audio_player
 import updater
 
 # ── 색상 / 스타일 상수 ──────────────────────────────────
-APP_VERSION = "4.1.7"
+APP_VERSION = "4.1.8"
 APP_NAME    = "Roundtable"
 
 BG          = "#F5F6FA"

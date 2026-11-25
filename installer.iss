@@ -34,6 +34,11 @@ Name: "desktopicon"; Description: "바탕화면에 바로가기 만들기"; Flag
 
 [Files]
 Source: "dist_배포\Roundtable\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+; seed: API keys / OAuth client. Never overwrite an existing user's settings.
+#ifexist "seed\config.json"
+Source: "seed\config.json"; DestDir: "{%USERPROFILE}\회의녹음요약_데이터"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "seed\google_credentials.json"; DestDir: "{%USERPROFILE}\회의녹음요약_데이터"; Flags: onlyifdoesntexist uninsneveruninstall
+#endif
 
 [Icons]
 Name: "{autoprograms}\Roundtable"; Filename: "{app}\Roundtable.exe"
