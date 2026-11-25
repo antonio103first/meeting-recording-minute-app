@@ -1992,6 +1992,10 @@ def _friendly_error(msg: str) -> str:
         return "API 키가 올바르지 않습니다. 설정 탭에서 다시 확인해주세요."
     if "PERMISSION_DENIED" in msg or "403" in msg:
         return "API 키 권한이 없습니다. Google AI Studio에서 키를 확인하세요."
+    low = msg.lower()
+    if "prepayment" in low or "credits are depleted" in low or "billing" in low or msg.lstrip().startswith("402"):
+        return ("Gemini API 크레딧이 소진되었습니다. 기다려도 해결되지 않습니다.\n"
+                "Google AI Studio(https://ai.studio/projects)에서 결제·크레딧을 충전해주세요.")
     if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
         if "PerDay" in msg or "quota" in msg.lower():
             return "API 일일 사용량이 소진됐습니다. 내일 다시 시도하거나 결제 설정을 확인해주세요."

@@ -21,6 +21,7 @@ import os
 import re
 import webbrowser
 import threading
+import queue
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext, simpledialog
 from datetime import datetime
@@ -39,9 +40,10 @@ import file_manager as fm
 import google_drive as gdrive
 import prescreen_tab
 import audio_player
+import updater
 
 # ── 색상 / 스타일 상수 ──────────────────────────────────
-APP_VERSION = "4.1.5"
+APP_VERSION = "4.1.7"
 APP_NAME    = "Roundtable"
 
 BG          = "#F5F6FA"
@@ -129,6 +131,116 @@ class App(tk.Tk):
         # 첫 실행 마법사 (API 키 없을 때)
         if not self._cfg.get("gemini_api_key", "").strip():
             self.after(200, self._show_first_run_wizard)
+
+        # 자동 업데이트 점검 (설치형일 때만, UI 뜬 뒤 3초)
+        self._upd_busy = False
+        self.after(3000, self._start_update_check)
+
+    # ── 자동 업데이트 ────────────────────────────────────
+    def _is_busy_for_update(self) -> bool:
+        recording = getattr(self._recorder, "_stream", None) is not None
+        return recording or self._processing
+
+    def _start_update_check(self, manual=False):
+        if not manual and not updater.is_frozen():
+            return
+        if self._upd_busy:
+            return
+        self._upd_busy = True
+        q = queue.Queue()
+
+        def work():
+            try:
+                q.put(("ok", updater.check(APP_VERSION)))
+            except Exception as e:
+                q.put(("err", str(e)))
+        threading.Thread(target=work, daemon=True).start()
+        self._poll_update_check(q, manual)
+
+    def _poll_update_check(self, q, manual):
+        try:
+            kind, val = q.get_nowait()
+        except queue.Empty:
+            self.after(200, lambda: self._poll_update_check(q, manual))
+            return
+        self._upd_busy = False
+        if kind == "err":
+            updater.log(f"점검 실패: {val}")
+            if manual:
+                messagebox.showerror("업데이트 확인 실패", val)
+            return
+        if val is None:
+            updater.log(f"최신 버전 사용 중 (v{APP_VERSION})")
+            if manual:
+                messagebox.showinfo("업데이트", f"최신 버전입니다. (v{APP_VERSION})")
+            return
+        self._offer_update(val, manual)
+
+    def _offer_update(self, info, manual=False):
+        if self._is_busy_for_update():
+            if manual:
+                messagebox.showinfo("업데이트", "녹음 또는 처리 중입니다. 끝난 뒤 다시 시도해 주세요.")
+            else:   # 작업 중에는 방해하지 않고 10분 뒤 다시 확인
+                self.after(600000, self._start_update_check)
+            return
+        notes = info.get("notes", "").strip()
+        msg = f"새 버전 v{info['version']} 이(가) 있습니다. (현재 v{APP_VERSION})\n"
+        if notes:
+            msg += f"\n{notes}\n"
+        msg += "\n지금 업데이트할까요? 설치 후 앱이 자동으로 다시 실행됩니다."
+        if not messagebox.askyesno("업데이트", msg):
+            return
+        if not updater.is_frozen():
+            messagebox.showinfo("업데이트", "개발(소스) 실행 중에는 설치하지 않습니다.")
+            return
+        self._download_and_install(info)
+
+    def _download_and_install(self, info):
+        dlg = tk.Toplevel(self)
+        dlg.title("업데이트 다운로드")
+        dlg.geometry("360x110")
+        dlg.transient(self)
+        dlg.protocol("WM_DELETE_WINDOW", lambda: None)
+        lbl = tk.Label(dlg, text=f"v{info['version']} 다운로드 중...", font=FONT_BODY)
+        lbl.pack(pady=(16, 6))
+        bar = ttk.Progressbar(dlg, length=300, maximum=100)
+        bar.pack()
+        q = queue.Queue()
+
+        def work():
+            try:
+                path = updater.download_installer(
+                    info, progress_cb=lambda v: q.put(("p", v)))
+                q.put(("done", path))
+            except Exception as e:
+                q.put(("err", str(e)))
+        threading.Thread(target=work, daemon=True).start()
+
+        def poll():
+            last = None
+            try:
+                while True:
+                    last = q.get_nowait()
+                    if last[0] != "p":
+                        break
+                    bar["value"] = last[1] * 100
+            except queue.Empty:
+                pass
+            if last is None or last[0] == "p":
+                self.after(200, poll)
+                return
+            if last[0] == "err":
+                dlg.destroy()
+                updater.log(f"설치 실패: {last[1]}")
+                messagebox.showerror("업데이트 실패", last[1])
+                return
+            lbl.config(text="설치 프로그램을 실행합니다. 잠시 후 앱이 다시 열립니다.")
+            dlg.update()
+            updater.log(f"v{info['version']} 설치 시작")
+            updater.launch_installer(last[1])
+            self._on_app_close()
+            os._exit(0)
+        poll()
 
     def _on_app_close(self):
         """앱 종료 핸들러 — 절전 방지 및 오디오 재생 반드시 해제 후 종료"""
@@ -581,6 +693,16 @@ class App(tk.Tk):
         canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
 
         pad = {"padx": 20, "pady": 8}
+
+        # ─ 버전 / 업데이트 ───────────────────────────────
+        self._card(inner, "🔄 버전 / 업데이트").pack(fill="x", **pad)
+        upd_card = self._last_card
+        upd_row = tk.Frame(upd_card, bg=CARD_BG)
+        upd_row.pack(fill="x")
+        tk.Label(upd_row, text=f"현재 버전: v{APP_VERSION}", font=FONT_BODY,
+                 bg=CARD_BG, fg=TEXT).pack(side="left")
+        self._btn(upd_row, "업데이트 확인", ACCENT,
+                  lambda: self._start_update_check(manual=True), w=14).pack(side="left", padx=12)
 
         # ─ Gemini API ───────────────────────────────────
         self._card(inner, "🤖 Gemini API 설정").pack(fill="x", **pad)
